@@ -25,6 +25,11 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TARGET_CHANNEL_ID = 1439872572039893083 # <--- PASTE THE SERVER CHANNEL ID HERE BRO!
 MASTER_ID = 454565617538957313 # <--- PASTE YOUR USER ID HERE BRO! (Security Lock)
 
+# --- GLOBAL STATE ---
+current_mode = "sayuki" 
+current_language = "English" 
+is_sleeping = False # <--- NEW: Controls if she is awake or not
+
 # --- 🧠 AI BRAIN SETUP (ROTATION LOGIC) ---
 async def generate_content_with_rotation(prompt, image=None):
     global GEMINI_KEYS
@@ -32,6 +37,7 @@ async def generate_content_with_rotation(prompt, image=None):
     for i, key in enumerate(GEMINI_KEYS):
         try:
             genai.configure(api_key=key)
+            # FIXED: Changed 2.5 (doesn't exist) to 1.5-flash (Stable)
             model = genai.GenerativeModel('gemini-2.5-flash') 
 
             if image:
@@ -93,10 +99,6 @@ Use emojis like: 💀, 😭, 🤡, 🧢, 🗿.
 Keep it short, savage, and disrespectful.
 """
 
-# --- GLOBAL STATE ---
-current_mode = "sayuki" 
-current_language = "English" 
-
 # --- 🤖 BOT SETUP ---
 intents = discord.Intents.all()
 client = commands.Bot(command_prefix="!", intents=intents)
@@ -127,6 +129,10 @@ class RoleView(View):
 # --- 💀 NECROMANCER LOOP (Auto-Revive) ---
 @tasks.loop(hours=12) # Checks every 12 hours
 async def auto_revive():
+    # If she is sleeping, she won't revive chat.
+    if is_sleeping:
+        return
+
     await client.wait_until_ready()
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
@@ -184,9 +190,31 @@ async def on_ready():
 async def on_message(message):
     global current_mode
     global current_language 
+    global is_sleeping
 
     if message.author == client.user:
         return
+
+    # --- 💤 SLEEP/WAKE PROTOCOL (HIGHEST PRIORITY) ---
+    
+    # 1. IF SLEEPING: Ignore everyone EXCEPT Master waking her up
+    if is_sleeping:
+        if message.author.id == MASTER_ID and "wake up" in message.content.lower():
+            is_sleeping = False
+            await client.change_presence(status=discord.Status.online)
+            await message.channel.send("Yawn... I'm up. Who missed me? 👀")
+            print("🟢 Bot Woken Up by Master")
+        return # IGNORE EVERYTHING ELSE WHEN SLEEPING
+
+    # 2. IF AWAKE: Check if Master wants her to sleep
+    if not is_sleeping and message.author.id == MASTER_ID and "go to sleep" in message.content.lower():
+        is_sleeping = True
+        await client.change_presence(status=discord.Status.invisible) # Looks Offline
+        await message.channel.send("Fine. I'm going offline. Don't burn the server down without me. 💤")
+        print("🔴 Bot put to sleep by Master")
+        return
+
+    # ---------------------------------------------------
     
     # DETERMINE ACTIVE PROMPT HELPER
     if current_mode == "sayuki": active_prompt = SAYUKI_PROMPT
@@ -400,6 +428,11 @@ async def on_message(message):
 @client.tree.command(name="roast", description="Humble someone real quick")
 async def roast(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer()
+    # Check if sleeping
+    if is_sleeping:
+         await interaction.followup.send("I'm sleeping rn... go away. 💤")
+         return
+
     if current_mode == "yumiko":
         await interaction.followup.send(f"I-I can't roast {member.mention}... t-that's mean! (>_<)")
         return
@@ -416,6 +449,11 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
 @client.tree.command(name="pickup", description="Let the bot pick you up")
 async def pickup(interaction: discord.Interaction):
     await interaction.response.defer()
+    # Check if sleeping
+    if is_sleeping:
+         await interaction.followup.send("I'm sleeping... zzz 💤")
+         return
+
     if current_mode == "yumiko":
          prompt = f"Try to say a pickup line but get extremely embarrassed and stutter halfway through. Language: {current_language}"
     elif current_mode == "xeni":
@@ -435,5 +473,6 @@ async def setup_vibe(interaction: discord.Interaction):
     embed = discord.Embed(title="✨ What's your energy?", description="Choose wisely...", color=discord.Color.purple())
     await interaction.channel.send(embed=embed, view=RoleView())
     await interaction.response.send_message("Menu spawned.", ephemeral=True)
+
 keep_alive() 
 client.run(DISCORD_TOKEN)
