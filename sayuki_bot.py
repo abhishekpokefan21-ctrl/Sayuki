@@ -25,6 +25,13 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TARGET_CHANNEL_ID = 1439872572039893083 # <--- PASTE THE SERVER CHANNEL ID HERE BRO!
 MASTER_ID = 454565617538957313 # <--- PASTE YOUR USER ID HERE BRO! (Security Lock)
 
+PERSONA_URLS = {
+    "sayuki": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763926273/6219d062ee15c558692f02e4c35c5a3c_b0d5mp.jpg", # <--- REPLACE THIS
+    "kusanagi": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763924687/1dbc63c2c8ca0f654c99de63d461dee0_dirz6t.jpg", # <--- REPLACE THIS
+    "yumiko": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763956120/c16a713f613583ee69c898cc18a8ac5e_zth7x4.jpg", # <--- REPLACE THIS
+    "xeni": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763925512/612b292a8ba3106dde7d8ed0e7aef5d4_jegcub.jpg" # <--- REPLACE THIS
+}
+
 # --- GLOBAL STATE ---
 current_mode = "sayuki" 
 current_language = "English" 
@@ -37,7 +44,7 @@ async def generate_content_with_rotation(prompt, image=None):
     for i, key in enumerate(GEMINI_KEYS):
         try:
             genai.configure(api_key=key)
-            # FIXED: Changed 2.5 (doesn't exist) to 1.5-flash (Stable)
+            # Using Stable Model
             model = genai.GenerativeModel('gemini-2.5-flash') 
 
             if image:
@@ -54,7 +61,7 @@ async def generate_content_with_rotation(prompt, image=None):
                 return None
             continue
 
-# --- 🎭 THE 4 PERSONAS ---
+# --- 🎭 THE 4 PERSONAS PROMPTS ---
 SAYUKI_PROMPT = """
 You are Sayuki. A cute but menacing anime girl bot on Discord.
 You are a master of "rizz" and enjoy teasing people relentlessly.
@@ -103,6 +110,55 @@ Keep it short, savage, and disrespectful.
 intents = discord.Intents.all()
 client = commands.Bot(command_prefix="!", intents=intents)
 
+# --- 🖌️ WEBHOOK PERSONA ENGINE (NEW FEATURE) ---
+async def send_smart_message(destination, text):
+    """
+    Determines if we should use a Webhook (Persona PFP) or Standard Send (DMs).
+    """
+    # 1. If it's a DM, we can't use webhooks. Use standard bot.
+    if isinstance(destination, discord.DMChannel) or isinstance(destination, discord.User) or isinstance(destination, discord.Member):
+        await destination.send(text)
+        return
+
+    # 2. If it's a Server Channel, try to use Webhook for the Persona PFP
+    try:
+        # Define Identity based on Mode
+        if current_mode == "sayuki":
+            p_name = "Sayuki 💋"
+            p_avatar = PERSONA_URLS["sayuki"]
+        elif current_mode == "kusanagi":
+            p_name = "Kusanagi 🍵"
+            p_avatar = PERSONA_URLS["kusanagi"]
+        elif current_mode == "yumiko":
+            p_name = "Yumiko 👉👈"
+            p_avatar = PERSONA_URLS["yumiko"]
+        elif current_mode == "xeni":
+            p_name = "Xeni 💀"
+            p_avatar = PERSONA_URLS["xeni"]
+        else:
+            p_name = "Sayuki"
+            p_avatar = PERSONA_URLS["sayuki"]
+
+        # Validate URL (Don't crash if user forgot to put link)
+        if "http" not in p_avatar: 
+            await destination.send(text) # Fallback if no link
+            return
+
+        # Manage Webhooks
+        webhooks = await destination.webhooks()
+        webhook = discord.utils.get(webhooks, name="Sayuki_Proxy")
+        
+        if webhook is None:
+            # Create if doesn't exist
+            webhook = await destination.create_webhook(name="Sayuki_Proxy")
+
+        # Send as Persona
+        await webhook.send(content=text, username=p_name, avatar_url=p_avatar)
+
+    except Exception as e:
+        print(f"Webhook Error (Falling back to standard): {e}")
+        await destination.send(text)
+
 # --- 🎨 UI CLASSES ---
 class ColorSelect(Select):
     def __init__(self):
@@ -127,29 +183,27 @@ class RoleView(View):
         self.add_item(ColorSelect())
 
 # --- 💀 NECROMANCER LOOP (Auto-Revive) ---
-@tasks.loop(hours=12) # Checks every 12 hours
+@tasks.loop(hours=12) 
 async def auto_revive():
-    # If she is sleeping, she won't revive chat.
-    if is_sleeping:
-        return
+    if is_sleeping: return
 
     await client.wait_until_ready()
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
 
-    # Check the history
     try:
         last_message = None
         async for msg in channel.history(limit=1):
             last_message = msg
         
         if last_message:
-            # 🛑 NO DOUBLE TEXTING RULE 🛑
-            if last_message.author.id == client.user.id:
-                print("🛑 I was the last one to speak. Not double texting.")
+            # 🛑 NO DOUBLE TEXTING RULE
+            # Note: With webhooks, the author.id won't be client.user.id.
+            # We check if the message username matches current persona name or bot name
+            if last_message.author.bot and "Sayuki" in last_message.author.name or last_message.author.id == client.user.id:
+                print("🛑 I (or my webhook) was the last one to speak. Not double texting.")
                 return
 
-            # Check time diff (6 hours silence required)
             time_diff = datetime.datetime.now(datetime.timezone.utc) - last_message.created_at
             if time_diff.total_seconds() < 21600: 
                 print("Chat is active, skipping revive.")
@@ -167,11 +221,11 @@ async def auto_revive():
     }
     
     current_prompt = prompts.get(current_mode, prompts["sayuki"])
-    
     response = await generate_content_with_rotation(f"{current_prompt} Language: {current_language}")
     
     if response:
-        await channel.send(response.text)
+        # USE SMART MESSAGE (WEBHOOK)
+        await send_smart_message(channel, response.text)
 
 # --- ⚡ EVENTS ---
 @client.event
@@ -194,46 +248,42 @@ async def on_message(message):
 
     if message.author == client.user:
         return
-
-    # --- 💤 SLEEP/WAKE PROTOCOL (HIGHEST PRIORITY) ---
     
-    # 1. IF SLEEPING: Ignore everyone EXCEPT Master waking her up
+    # Ignore own webhooks to prevent loops
+    if message.webhook_id: 
+        return
+
+    # --- 💤 SLEEP/WAKE PROTOCOL ---
     if is_sleeping:
         if message.author.id == MASTER_ID and "wake up" in message.content.lower():
             is_sleeping = False
             await client.change_presence(status=discord.Status.online)
             await message.channel.send("Yawn... I'm up. Who missed me? 👀")
             print("🟢 Bot Woken Up by Master")
-        return # IGNORE EVERYTHING ELSE WHEN SLEEPING
+        return 
 
-    # 2. IF AWAKE: Check if Master wants her to sleep
     if not is_sleeping and message.author.id == MASTER_ID and "go to sleep" in message.content.lower():
         is_sleeping = True
-        await client.change_presence(status=discord.Status.invisible) # Looks Offline
+        await client.change_presence(status=discord.Status.invisible) 
         await message.channel.send("Fine. I'm going offline. Don't burn the server down without me. 💤")
         print("🔴 Bot put to sleep by Master")
         return
 
-    # ---------------------------------------------------
-    
-    # DETERMINE ACTIVE PROMPT HELPER
+    # --- DETERMINE ACTIVE PROMPT ---
     if current_mode == "sayuki": active_prompt = SAYUKI_PROMPT
     elif current_mode == "kusanagi": active_prompt = KUSANAGI_PROMPT
     elif current_mode == "xeni": active_prompt = XENI_PROMPT
     else: active_prompt = YUMIKO_PROMPT
 
-    # --- 🛑 ANTI-ECHO PROTOCOL ---
     language_instruction = f"\n\nIMPORTANT: You MUST respond in {current_language} language only. DO NOT repeat the user's message. DO NOT start with 'User said'. Just reply directly with your response."
 
-    # --- 👻 GHOST MODE: MASTER CONTROL ---
+    # --- 👻 GHOST MODE ---
     if isinstance(message.channel, discord.DMChannel):
-        if message.author.id == MASTER_ID: # <-- ONLY YOU CAN DO THIS
+        if message.author.id == MASTER_ID:
             
-            # --- 🕵️ DM SNIPER (New Feature) ---
-            # Usage: dm 1234567890 Hey talk to this guy
+            # --- 🕵️ DM SNIPER ---
             if message.content.lower().startswith("dm "):
                 try:
-                    # Parse command: "dm" | "ID" | "Topic"
                     parts = message.content.split(" ", 2)
                     if len(parts) < 3:
                         await message.channel.send("Usage: `dm <USER_ID> <TOPIC>`")
@@ -241,27 +291,24 @@ async def on_message(message):
                     
                     target_id = parts[1]
                     topic = parts[2]
-                    
-                    # Fetch User
                     target_user = await client.fetch_user(int(target_id))
                     
-                    # Generate
                     async with message.channel.typing():
                         ctx = f"You are sliding into this user's DMs. The topic is: '{topic}'."
                         prompt = f"{active_prompt}\n\nTASK: {ctx} {language_instruction}"
                         response = await generate_content_with_rotation(prompt)
                         
                         if response:
+                            # Use standard send for DMs (No webhooks in DMs)
                             await target_user.send(response.text)
-                            await message.add_reaction("📨") # React envelope if sent
+                            await message.add_reaction("📨") 
                         else:
                             await message.add_reaction("❌")
                 except Exception as e:
                     await message.channel.send(f"Failed to DM: {e}")
-                return # Stop here
+                return 
 
             # --- 🏙️ SERVER GHOST ---
-            # Usage: Just type anything else
             target_channel = client.get_channel(TARGET_CHANNEL_ID)
             if target_channel:
                 async with message.channel.typing():
@@ -276,54 +323,47 @@ async def on_message(message):
                     response = await generate_content_with_rotation(prompt)
                     
                     if response:
-                        await target_channel.send(response.text)
+                        # USE SMART MESSAGE (WEBHOOK)
+                        await send_smart_message(target_channel, response.text)
                         await message.add_reaction("✅") 
                     else:
                         await message.add_reaction("❌")
-            return # STOP HERE for Master DMs
+            return 
         
-        # Randoms DMs fall through to normal chat logic below
-
-    # Standard Command Processing
     await client.process_commands(message)
     if message.content.startswith('!'): return
 
-    # --- 0. MODE SWITCHING CODES ---
+    # --- 0. MODE SWITCHING ---
     if "1234" in message.content:
         current_mode = "kusanagi"
         await message.channel.send("Personality shift engaged. Kusanagi online. ❄️")
         return
-    
     if "2234" in message.content:
         current_mode = "sayuki"
         await message.channel.send("Ha! Sayuki is back baby! Missed me? 😏💅")
         return
-    
     if "3234" in message.content:
         current_mode = "yumiko"
         await message.channel.send("U-um... h-hi... Yumiko here... please be nice... 👉👈")
         return
-
     if "4234" in message.content:
         current_mode = "xeni"
         await message.channel.send("Yo. Xeni here. Prepare to get cooked. 💀🔥")
         return
 
-    # --- LANGUAGE SWITCHING ---
+    # --- LANGUAGE ---
     if message.content.lower().startswith("change language to"):
         try:
             new_lang = message.content.lower().split("change language to")[1].strip()
             current_language = new_lang
             await message.channel.send(f"✅ Language set to **{current_language.capitalize()}**. I will speak {current_language} from now on.")
             return
-        except:
-            pass
+        except: pass
 
-    # --- 🆕 EMOJI REACTION LOGIC ---
-    if random.random() < 0.10: # 10% chance
+    # --- 🆕 EMOJI REACTION ---
+    if random.random() < 0.10: 
         try:
             server_emojis = message.guild.emojis if message.guild else []
-            
             if current_mode == "sayuki":
                 defaults = ["💋", "💅", "😏", "🤭", "👀", "🔥"]
                 valid_customs = [e for e in server_emojis if not e.animated] 
@@ -342,10 +382,9 @@ async def on_message(message):
             else:
                 reaction = random.choice(defaults)
             await message.add_reaction(reaction)
-        except Exception:
-            pass
+        except Exception: pass
 
-    # --- ☢️ THE STEVEN/STEVE DESTROYER ---
+    # --- ☢️ STEVEN DESTROYER ---
     if "steven" in message.content.lower() or "steve" in message.content.lower():
          async with message.channel.typing():
             try:
@@ -357,13 +396,13 @@ async def on_message(message):
                 final_prompt = f"{active_prompt}\n\nTASK: {steven_instruction}{language_instruction}"
                 response = await generate_content_with_rotation(final_prompt)
                 
-                if response: await message.channel.send(response.text)
+                if response: 
+                    await send_smart_message(message.channel, response.text)
                 return 
             except Exception as e: print(f"Steven Error: {e}")
 
     # --- 1. TRIGGER WORD DETECTOR ---
     triggers = ["love", "single", "date", "rizz", "simp", "lonely", "cute", "hot", "gf", "bf", "bored"]
-    
     if any(word in message.content.lower() for word in triggers):
         async with message.channel.typing():
             try:
@@ -375,23 +414,27 @@ async def on_message(message):
                 final_prompt = f"{active_prompt}\n\nTASK: {context}{language_instruction}"
                 response = await generate_content_with_rotation(final_prompt)
                 
-                if response: await message.channel.send(response.text)
-                else: await message.channel.send("My brain is fried... too much thinking... (API Quota exceeded)")
+                if response: 
+                    # USE SMART MESSAGE
+                    await send_smart_message(message.channel, response.text)
+                else: await message.channel.send("My brain is fried... (Quota Exceeded)")
                 return 
             except Exception as e: print(f"AI Error: {e}")
 
-    # --- 2. DIRECT CHAT (PINGS & DMS) ---
+    # --- 2. DIRECT CHAT ---
     if client.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
         clean_text = message.content.replace(f"<@{client.user.id}>", "").strip()
         if clean_text:
             async with message.channel.typing():
                 prompt = f"{active_prompt}\n\nUser Message: {clean_text}\n\nYOUR RESPONSE (Do not repeat user message):{language_instruction}"
                 response = await generate_content_with_rotation(prompt)
-                if response: await message.channel.send(response.text)
+                if response: 
+                    # USE SMART MESSAGE
+                    await send_smart_message(message.channel, response.text)
                 else: await message.channel.send("System overload... try again later.")
                 return
 
-    # --- 3. VISION MODE (IMAGES) ---
+    # --- 3. VISION MODE ---
     if message.attachments and client.user.mentioned_in(message):
         async with message.channel.typing():
             try:
@@ -408,7 +451,8 @@ async def on_message(message):
                         else: instruction = "Look at this image. Act curious but shy. If it's scary or bold, hide behind the user."
 
                         response = await generate_content_with_rotation(f"{active_prompt}\n{instruction}{language_instruction}", image)
-                        if response: await message.channel.send(response.text)
+                        if response: 
+                            await send_smart_message(message.channel, response.text)
                         else: await message.channel.send("I... I can't see anything right now... (>_<)")
                         return
             except Exception as e:
@@ -421,18 +465,18 @@ async def on_message(message):
             try:
                 prompt = f"{active_prompt}\n\nContext: User said '{message.content}'. Jump in with a short, unhinged/roast comment.{language_instruction}"
                 response = await generate_content_with_rotation(prompt)
-                if response: await message.channel.send(response.text)
+                if response: 
+                    await send_smart_message(message.channel, response.text)
             except Exception: pass
 
 # --- ⚔️ SLASH COMMANDS ---
 @client.tree.command(name="roast", description="Humble someone real quick")
 async def roast(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer()
-    # Check if sleeping
     if is_sleeping:
          await interaction.followup.send("I'm sleeping rn... go away. 💤")
          return
-
+    
     if current_mode == "yumiko":
         await interaction.followup.send(f"I-I can't roast {member.mention}... t-that's mean! (>_<)")
         return
@@ -443,13 +487,16 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
          prompt = f"Roast {member.name} for having zero game/rizz. Be savage. Language: {current_language}"
     
     response = await generate_content_with_rotation(prompt)
-    if response: await interaction.followup.send(f"{member.mention} {response.text}")
+    if response: 
+        # For Slash commands, we can use the webhook to reply so it looks like the persona!
+        await send_smart_message(interaction.channel, f"{member.mention} {response.text}")
+        # We just send a silent confirmation to Discord so the interaction doesn't fail
+        await interaction.followup.send("🔥", ephemeral=True)
     else: await interaction.followup.send("I'm out of roasts right now.")
 
 @client.tree.command(name="pickup", description="Let the bot pick you up")
 async def pickup(interaction: discord.Interaction):
     await interaction.response.defer()
-    # Check if sleeping
     if is_sleeping:
          await interaction.followup.send("I'm sleeping... zzz 💤")
          return
@@ -462,7 +509,10 @@ async def pickup(interaction: discord.Interaction):
          prompt = f"Give me a pickup line that is so bad it's good. Language: {current_language}"
 
     response = await generate_content_with_rotation(prompt)
-    if response: await interaction.followup.send(f"Hey {interaction.user.mention}... {response.text}")
+    if response: 
+        # Send via Webhook
+        await send_smart_message(interaction.channel, f"Hey {interaction.user.mention}... {response.text}")
+        await interaction.followup.send("😘", ephemeral=True)
     else: await interaction.followup.send("I forgot my line...")
 
 @client.tree.command(name="setup_vibe", description="Spawn the vibe menu")
