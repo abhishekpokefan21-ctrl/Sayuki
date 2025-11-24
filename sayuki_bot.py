@@ -30,7 +30,7 @@ MASTER_ID = 454565617538957313
 PERSONA_URLS = {
     "sayuki": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763926273/6219d062ee15c558692f02e4c35c5a3c_b0d5mp.jpg",
     "kusanagi": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763924687/1dbc63c2c8ca0f654c99de63d461dee0_dirz6t.jpg",
-    "yumiko": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763956120/c16a713f613583ee69c898cc18a8ac5e_zth7x4.jpg",
+    "yumiko": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763924689/kitagawa-kitagawa-marin_gcc2mx.gif",
     "xeni": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763925512/612b292a8ba3106dde7d8ed0e7aef5d4_jegcub.jpg"
 }
 
@@ -46,7 +46,7 @@ async def generate_content_with_rotation(prompt, image=None):
     for i, key in enumerate(GEMINI_KEYS):
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash') 
+            model = genai.GenerativeModel('gemini-2.5-flash') 
 
             if image:
                 response = await asyncio.to_thread(model.generate_content, [prompt, image])
