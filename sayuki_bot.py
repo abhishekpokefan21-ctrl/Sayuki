@@ -197,6 +197,8 @@ async def auto_revive():
             last_message = msg
         
         if last_message:
+            # Check if the last message was sent by the bot OR one of its webhooks
+            # We check the bot ID or if the name contains "Sayuki/Xeni/etc"
             is_me = last_message.author.id == client.user.id
             if last_message.author.bot and "Sayuki" in last_message.author.name: is_me = True
             
@@ -250,14 +252,17 @@ async def on_message(message):
         return
     
     # 2. Ignore messages from OWN webhooks (Prevent infinite loops)
+    # If the webhook name matches our persona names, ignore it.
     if message.webhook_id: 
         if message.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
             return
 
-    # --- 🆕 REACTION LOGIC ---
+    # --- 🆕 REACTION LOGIC (Top Priority - Reacts to User Messages) ---
+    # Only react if it's NOT a webhook (unless it's another bot, which is fine)
     if not message.webhook_id and random.random() < 0.10: 
         try:
             server_emojis = message.guild.emojis if message.guild else []
+            
             if current_mode == "sayuki":
                 defaults = ["💋", "💅", "😏", "🤭", "👀", "🔥"]
                 valid_customs = [e for e in server_emojis if not e.animated] 
@@ -345,14 +350,13 @@ async def on_message(message):
 
                     user_topic = message.content
                     prompt = f"{active_prompt}\n\nTASK: {ctx} The specific topic/message to talk about is: '{user_topic}'. {language_instruction}"
+                    
                     response = await generate_content_with_rotation(prompt)
-                
-                # Now that typing block exited, send message
-                if response:
-                    await send_smart_message(target_channel, response.text)
-                    await message.add_reaction("✅") 
-                else:
-                    await message.add_reaction("❌")
+                    if response:
+                        await send_smart_message(target_channel, response.text)
+                        await message.add_reaction("✅") 
+                    else:
+                        await message.add_reaction("❌")
             return 
         
     # Standard Commands
@@ -386,33 +390,41 @@ async def on_message(message):
             return
         except: pass
 
-    # --- 🧠 SMART REPLY LOGIC ---
+    # --- 🧠 SMART REPLY LOGIC (The "Reply to Webhook" Fix) ---
     should_respond = False
     user_input = message.content
 
+    # Check 1: Direct Mention
     if client.user.mentioned_in(message):
         should_respond = True
         user_input = message.content.replace(f"<@{client.user.id}>", "").strip()
 
+    # Check 2: Reply to a Persona Webhook
     if message.reference and not should_respond:
         try:
             original_msg = await message.channel.fetch_message(message.reference.message_id)
+            # Check if original message was from a webhook (discriminator 0000) AND matches our personas
             if original_msg.author.discriminator == '0000':
                 if original_msg.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
                     should_respond = True
                     print("✨ User replied to a Persona Webhook!")
-        except: pass 
+        except:
+            pass 
 
+    # Check 3: Trigger Words
     triggers = ["love", "single", "date", "rizz", "simp", "lonely", "cute", "hot", "gf", "bf", "bored"]
-    if any(word in message.content.lower() for word in triggers): should_respond = True
+    if any(word in message.content.lower() for word in triggers):
+        should_respond = True
 
-    if "steven" in message.content.lower() or "steve" in message.content.lower(): should_respond = True
+    # Check 4: Steven Destroyer
+    if "steven" in message.content.lower() or "steve" in message.content.lower():
+        should_respond = True
+        # Special instructions handled below in prompt
 
-    # --- 🚀 EXECUTE RESPONSE (FIXED TYPING) ---
+    # --- 🚀 EXECUTE RESPONSE ---
     if should_respond:
-        # FIXED: Generate INSIDE typing block, Send OUTSIDE
-        response = None
         async with message.channel.typing():
+            # Custom Contexts
             if "steven" in message.content.lower() or "steve" in message.content.lower():
                 if current_mode == "sayuki": context = "User mentioned Steven/Steve. Mock him relentlessly. Call him 'Steven the Gooner'."
                 elif current_mode == "xeni": context = "User mentioned Steven. DESTROY HIM. Call him a gooner, L + Ratio."
@@ -424,17 +436,15 @@ async def on_message(message):
 
             final_prompt = f"{active_prompt}\n\nTASK: {context}{language_instruction}"
             response = await generate_content_with_rotation(final_prompt)
-        
-        # TYPING HAS STOPPED HERE
-        if response: 
-            await send_smart_message(message.channel, response.text)
-        else: 
-            await message.channel.send("My brain is fried... (Quota Exceeded)")
+            
+            if response: 
+                await send_smart_message(message.channel, response.text)
+            else: 
+                await message.channel.send("My brain is fried... (Quota Exceeded)")
         return 
 
     # --- 3. VISION MODE ---
     if message.attachments and client.user.mentioned_in(message):
-        response = None
         async with message.channel.typing():
             try:
                 attachment = message.attachments[0]
@@ -450,27 +460,23 @@ async def on_message(message):
                         else: instruction = "Look at this image. Act curious but shy."
 
                         response = await generate_content_with_rotation(f"{active_prompt}\n{instruction}{language_instruction}", image)
+                        if response: 
+                            await send_smart_message(message.channel, response.text)
+                        else: await message.channel.send("I... I can't see anything right now... (>_<)")
+                        return
             except Exception as e:
                 print(f"Vision Error: {e}")
                 await message.channel.send("I... I can't see that... (>_<)")
-        
-        if response:
-            await send_smart_message(message.channel, response.text)
-        else:
-            await message.channel.send("I... I can't see anything right now... (>_<)")
-        return
 
     # --- 4. RANDOM CHAOS ---
     if (current_mode == "sayuki" or current_mode == "xeni") and random.random() < 0.01: 
-        response = None
         async with message.channel.typing():
             try:
                 prompt = f"{active_prompt}\n\nContext: User said '{message.content}'. Jump in with a short, unhinged/roast comment.{language_instruction}"
                 response = await generate_content_with_rotation(prompt)
+                if response: 
+                    await send_smart_message(message.channel, response.text)
             except Exception: pass
-        
-        if response:
-            await send_smart_message(message.channel, response.text)
 
 # --- ⚔️ SLASH COMMANDS ---
 @client.tree.command(name="roast", description="Humble someone real quick")
