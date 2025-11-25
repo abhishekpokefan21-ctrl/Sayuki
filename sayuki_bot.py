@@ -28,7 +28,7 @@ MASTER_ID = 454565617538957313
 
 # --- 🛡️ PERMISSIONS SETUP ---
 # Anyone with these Role Names can use "sleep/wake" commands
-AUTHORIZED_ROLES = ["🛡️ Admin", "🛡️ Co-Owner"] 
+AUTHORIZED_ROLES = ["Admin", "Moderator", "Owner", "Sayuki Handler"] 
 
 # --- 🖼️ PERSONA IMAGES ---
 PERSONA_URLS = {
@@ -298,6 +298,22 @@ async def on_message(message):
     if message.webhook_id: 
         if message.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀", "Rika 💻", "Mina 🎀"]:
             return
+
+    # --- 🚫 ANTI-BEEF FILTER (Prevents Drama) ---
+    # Normalize text: remove spaces/symbols, convert to lowercase
+    # e.g., "B a d d i e s" becomes "baddies", "Bad dies" becomes "baddies"
+    clean_text = ''.join(char for char in message.content.lower() if char.isalnum())
+    
+    if "baddies" in clean_text:
+        try:
+            await message.delete()
+            # Optional: Warn the user and then delete warning (to keep chat clean)
+            warning = await message.channel.send(f"{message.author.mention} We don't bring that drama here. 🚫")
+            await asyncio.sleep(4)
+            await warning.delete()
+            return # Stop processing this message completely
+        except Exception:
+            pass
 
     # --- 🆕 REACTION LOGIC (Top Priority - Reacts to User Messages) ---
     if not message.webhook_id and random.random() < 0.10: 
