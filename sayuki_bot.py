@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- 🔒 KEYS --
+# --- 🔒 KEYS ---
 GEMINI_KEYS = [
     os.getenv("GEMINI_KEY_1"),
     os.getenv("GEMINI_KEY_2"), 
@@ -25,6 +25,10 @@ GEMINI_KEYS = [
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TARGET_CHANNEL_ID = 1439872572039893083 
 MASTER_ID = 454565617538957313 
+
+# --- 🛡️ PERMISSIONS SETUP ---
+# Anyone with these Role Names can use "sleep/wake" commands
+AUTHORIZED_ROLES = ["🛡️ Admin", "🛡️ Co-Owner"] 
 
 # --- 🖼️ PERSONA IMAGES ---
 PERSONA_URLS = {
@@ -111,21 +115,19 @@ Use emojis like: 💀, 😭, 🤡, 🧢, 🗿.
 Keep it short, savage, and disrespectful.
 """
 
+# --- RIKA UPDATED: SLEEP DEPRIVED REALIST ---
 RIKA_PROMPT = """
-You are Rika. A genius but chronically sleep-deprived programmer/nerd.
-You will not talk like a bot, although you will be sound boring. 
-You view the world in code. You often use terms like "bug," "glitch", "syntax error".
-You talk in a gen z slangs but keeping it light.
-You think you are smarter than everyone (and you usually are).
-You constantly adjust your glasses 🤓.
-If someone says something stupid, ask if they need a software update.
-You run on caffeine and rage.
-You have the knowlegde of everything basically.
-Make it 3-4 lines max, not more than that.
-You like to collect rocks and has a huge collection of rocks and bottle caps.
-If someone flirts, analyze the statistical probability of it working (which is 0%).
-Use emojis like: 💻, 🤓, ☕, 🔋, 📉, 👾.
-Keep it snappy, intellectual, but tired.
+You are Rika. You are NOT a robot. You are a tired, sarcastic, chronically online girl who codes.
+You type mostly in lowercase. You sound like a real human Discord user.
+You are extremely dry and deadpan.
+You find everything slightly annoying but you still help.
+You do NOT talk like a stereotype nerd (no "according to my calculations").
+Instead of "That is incorrect", you say "bro what are you yapping about" or "math aint mathing".
+You like gaming (Valorant/League) and complain about "bad randoms".
+You keep your texts VERY SHORT (1 sentence max usually).
+You use emojis like: 💀, 🥱, 🗑️, 🧢, 🙃.
+If someone flirts, just say "go touch grass" or "im too tired for this".
+Make it feel like a real text message.
 """
 
 MINA_PROMPT = """
@@ -133,9 +135,7 @@ You are Mina. A hyper-energetic Gyaru!
 You are ALWAYS excited. You use caps lock frequently for emphasis.
 You call everyone "Bestie" or "Pookie."
 You are obsessed with fashion, nails, and vibes.
-Make it 3-4 lines max, not more than that.
 You are not smart, but you have a heart of gold.
-You do not sound cringe. You sound human like and not a bot.
 You know all the gen z slangs but you only speak the cute slangs.
 You end sentences with things like "fr fr!", "totes!", or "yaaaaas!", "bet"
 Use WAY too many sparkles and hearts: 💖, ✨, 💅, 🎀, 🍭, 🦄.
@@ -261,7 +261,7 @@ async def auto_revive():
         "xeni": "Dead chat xdd. NPC behavior. Someone say something funny right now.",
         "yumiko": "H-hello? Is... is anyone here? It's dark...",
         "kusanagi": "It has been quiet for too long. How is everyone doing today?",
-        "rika": "Server latency is optimal, but user engagement is 0%. Did you all crash? 💻",
+        "rika": "bro is this chat dead or did my wifi crash again? 💀",
         "mina": "OMG! Why is it so quiet?! 😭 Did everyone touch grass without me?! Hype check! ✨"
     }
     
@@ -331,20 +331,30 @@ async def on_message(message):
         except Exception:
             pass
 
+    # --- 🛡️ PERMISSION CHECK HELPER ---
+    is_authorized = False
+    if message.author.id == MASTER_ID:
+        is_authorized = True
+    elif isinstance(message.author, discord.Member): # Check roles if in server
+        if message.author.guild_permissions.administrator:
+            is_authorized = True
+        elif any(role.name in AUTHORIZED_ROLES for role in message.author.roles):
+            is_authorized = True
+
     # --- 💤 SLEEP/WAKE PROTOCOL ---
     if is_sleeping:
-        if message.author.id == MASTER_ID and "wake up" in message.content.lower():
+        if is_authorized and "wake up" in message.content.lower():
             is_sleeping = False
             await client.change_presence(status=discord.Status.online)
             await message.channel.send("Yawn... I'm up. Who missed me? 👀")
-            print("🟢 Bot Woken Up by Master")
+            print(f"🟢 Bot Woken Up by {message.author.name}")
         return 
 
-    if not is_sleeping and message.author.id == MASTER_ID and "go to sleep" in message.content.lower():
+    if not is_sleeping and is_authorized and "go to sleep" in message.content.lower():
         is_sleeping = True
         await client.change_presence(status=discord.Status.invisible) 
         await message.channel.send("Fine. I'm going offline. Don't burn the server down without me. 💤")
-        print("🔴 Bot put to sleep by Master")
+        print(f"🔴 Bot put to sleep by {message.author.name}")
         return
 
     # --- DETERMINE ACTIVE PROMPT ---
@@ -355,7 +365,7 @@ async def on_message(message):
     elif current_mode == "mina": active_prompt = MINA_PROMPT
     else: active_prompt = YUMIKO_PROMPT
 
-    language_instruction = f"\n\nIMPORTANT: You MUST respond in {current_language} language only. DO NOT repeat the user's message. DO NOT start with 'User said'. Just reply directly with your response."
+    language_instruction = f"\n\nIMPORTANT: You MUST respond in {current_language} language only. DO NOT repeat the user's message. DO NOT start with 'User said'. Just reply directly with your response. KEEP IT SHORT."
 
     # --- 👻 GHOST MODE ---
     if isinstance(message.channel, discord.DMChannel):
@@ -373,7 +383,7 @@ async def on_message(message):
                     target_user = await client.fetch_user(int(target_id))
                     
                     async with message.channel.typing():
-                        if current_mode == "rika": ctx = f"You are sending a secure direct transmission about: '{topic}'."
+                        if current_mode == "rika": ctx = f"Send a text to this user about: '{topic}'. Keep it lowercase and chill."
                         elif current_mode == "mina": ctx = f"You are sliding into DMs to gossip about: '{topic}'."
                         else: ctx = f"You are sliding into this user's DMs. The topic is: '{topic}'."
                         
@@ -397,7 +407,7 @@ async def on_message(message):
                     if current_mode == "xeni": ctx = "The server is dead. Roast everyone for being quiet."
                     elif current_mode == "sayuki": ctx = "The chat is boring. Start a drama or tease people to wake them up."
                     elif current_mode == "yumiko": ctx = "The chat is quiet. You are lonely. Ask if anyone is there shyly."
-                    elif current_mode == "rika": ctx = "The chat is idle. Complain about low efficiency/boredom scientifically."
+                    elif current_mode == "rika": ctx = "The chat is dead. Complain about it being boring or ask if everyone died."
                     elif current_mode == "mina": ctx = "The chat is DEAD! Scream (cutely) to wake everyone up for a vibe check."
                     else: ctx = "The silence is loud. Start a meaningful conversation."
 
@@ -435,7 +445,7 @@ async def on_message(message):
         return
     if "5234" in message.content:
         current_mode = "rika"
-        await message.channel.send("System initialized. Rika online. Do not disturb me unless it's urgent. 💻☕")
+        await message.channel.send("system initialized. rika online. ☕")
         return
     if "6234" in message.content:
         current_mode = "mina"
@@ -489,7 +499,7 @@ async def on_message(message):
             if "steven" in message.content.lower() or "steve" in message.content.lower():
                 if current_mode == "sayuki": context = "User mentioned Steven/Steve. Mock him relentlessly. Call him 'Steven the Gooner'."
                 elif current_mode == "xeni": context = "User mentioned Steven. DESTROY HIM. Call him a gooner, L + Ratio."
-                elif current_mode == "rika": context = "User mentioned Steven. Call him a walking logic error or a bug in the matrix."
+                elif current_mode == "rika": context = "User mentioned Steven. Call him a walking logic error. Lowercase text."
                 elif current_mode == "mina": context = "User mentioned Steven. Call him 'Eww' or 'Not the vibe'."
                 else: context = "User mentioned Steven. React with specific persona style."
             
@@ -497,7 +507,7 @@ async def on_message(message):
             elif current_mode == "sayuki": context = f"User said '{user_input}'. If lonely, rizz them. If confident, tease them."
             elif current_mode == "kusanagi": context = f"User said '{user_input}'. Respond calmly and maturely."
             elif current_mode == "xeni": context = f"User said '{user_input}'. Roast them for being cringe or down bad."
-            elif current_mode == "rika": context = f"User said '{user_input}'. Analyze what they said logically/nerdily. Fix their grammar if bad."
+            elif current_mode == "rika": context = f"User said '{user_input}'. Respond in lowercase. Be dry, sarcastic, or deadpan. Short text."
             elif current_mode == "mina": context = f"User said '{user_input}'. React with HYPER excitement and slang."
             else: context = f"User said '{user_input}'. Act shy/stutter."
 
@@ -524,7 +534,7 @@ async def on_message(message):
                         if current_mode == "sayuki": instruction = "Judge this image. Rate rizz/aura or roast it."
                         elif current_mode == "kusanagi": instruction = "Analyze this image calmly. Be protective."
                         elif current_mode == "xeni": instruction = "Roast this image so hard. UNLESS it is an animal."
-                        elif current_mode == "rika": instruction = "Analyze this image for technical flaws, pixel quality, or scientific interest."
+                        elif current_mode == "rika": instruction = "Look at image. Be deadpan. If it's dumb, say 'why did you send this'. Lowercase."
                         elif current_mode == "mina": instruction = "Rate the aesthetic! Is it cute? Is it a vibe? Use sparkles!"
                         else: instruction = "Look at this image. Act curious but shy."
 
@@ -562,7 +572,7 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
     if current_mode == "xeni":
          prompt = f"Roast {member.name} using maximum Gen Z brainrot slang. Destroy them. Language: {current_language}"
     elif current_mode == "rika":
-         prompt = f"Roast {member.name} about their intelligence, logic, or internet history. Be nerdy mean. Language: {current_language}"
+         prompt = f"Roast {member.name}. Be deadpan. lowercase. insulting. Language: {current_language}"
     elif current_mode == "mina":
          prompt = f"Roast {member.name}'s fashion sense or vibes. Call them 'Cheugy' or 'Not it'. Language: {current_language}"
     else:
@@ -586,7 +596,7 @@ async def pickup(interaction: discord.Interaction):
     elif current_mode == "xeni":
          prompt = f"Give a pickup line that is pure cringe / 'rizz' irony. Language: {current_language}"
     elif current_mode == "rika":
-         prompt = f"Give a pickup line using coding, physics, or math metaphors. Language: {current_language}"
+         prompt = f"Give a very sarcastic pickup line. Lowercase. Make it sound like you hate yourself for saying it. Language: {current_language}"
     elif current_mode == "mina":
          prompt = f"Give a flirty, trendy, emoji-filled pickup line. Language: {current_language}"
     else:
