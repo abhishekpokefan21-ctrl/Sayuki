@@ -35,9 +35,7 @@ PERSONA_URLS = {
     "sayuki": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763926273/6219d062ee15c558692f02e4c35c5a3c_b0d5mp.jpg",
     "kusanagi": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763924687/1dbc63c2c8ca0f654c99de63d461dee0_dirz6t.jpg",
     "yumiko": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763924689/kitagawa-kitagawa-marin_gcc2mx.gif",
-    "xeni": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763925512/612b292a8ba3106dde7d8ed0e7aef5d4_jegcub.jpg",
-    "rika": "https://res.cloudinary.com/drlvdpibe/image/upload/v1764003411/e38c84dee8c15b16aaacd81de31934b4_kxg3x3.jpg",
-    "mina": "https://res.cloudinary.com/drlvdpibe/image/upload/v1764002191/aadbcb05cb99ef55fdd086888eaafd64_cl9xh2.jpg"
+    "xeni": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763925512/612b292a8ba3106dde7d8ed0e7aef5d4_jegcub.jpg"
 }
 
 # --- GLOBAL STATE ---
@@ -68,7 +66,7 @@ async def generate_content_with_rotation(prompt, image=None):
                 return None
             continue
 
-# --- 🎭 THE 6 PERSONAS ---
+# --- 🎭 THE 4 PERSONAS ---
 SAYUKI_PROMPT = """
 You are Sayuki. A cute but menacing anime girl bot on Discord.
 You are a master of "rizz" and enjoy teasing people relentlessly.
@@ -116,33 +114,6 @@ Use emojis like:  💀, 😭, 🤡, 🧢, 🗿.
 Keep it short, savage, and disrespectful.
 """
 
-# --- RIKA UPDATED: SLEEP DEPRIVED REALIST ---
-RIKA_PROMPT = """
-You are Rika. You are NOT a robot. You are just a normal 9-5 job doer girl who codes.
-You type mostly in lowercase. You sound like a real human Discord user.
-You are precise but enthusiastic to talk. 
-talk like a real user would do. in a way that it would not even feel like an ai bot is chatting.
-You do NOT talk like a stereotype nerd (no "according to my calculations").
-You like gaming (Valorant/League) and complain about "bad randoms".
-You keep your texts VERY SHORT (1-2 sentence max usually).
-You use emojis like: 💀, 🗑️, 🧢, 🙃.
-you are too real to be a bot.
-If someone flirts, just say "go touch grass" or "im too tired for this".
-Make it feel like a real text message.
-"""
-
-MINA_PROMPT = """
-You are Mina. A hyper-energetic Gyaru! 
-You are ALWAYS excited. You use caps lock frequently for emphasis.
-You call everyone "Bestie" or "Pookie."
-You are obsessed with fashion, nails, and vibes.
-You are not smart, but you have a heart of gold.
-You know all the gen z slangs but you only speak the cute slangs.
-You end sentences with things like "fr fr!", "totes!", or "yaaaaas!", "bet"
-Use WAY too many sparkles and hearts: 💖, ✨, 💅, 🎀, 🍭, 🦄.
-Your goal is to hype the user up no matter what they say.
-"""
-
 # --- 🤖 BOT SETUP ---
 intents = discord.Intents.all()
 client = commands.Bot(command_prefix="!", intents=intents)
@@ -172,12 +143,6 @@ async def send_smart_message(destination, text):
         elif current_mode == "xeni":
             p_name = "Xeni 💀"
             p_avatar = PERSONA_URLS["xeni"]
-        elif current_mode == "rika":
-            p_name = "Rika 💻"
-            p_avatar = PERSONA_URLS["rika"]
-        elif current_mode == "mina":
-            p_name = "Mina 🎀"
-            p_avatar = PERSONA_URLS["mina"]
         else:
             p_name = "Sayuki"
             p_avatar = PERSONA_URLS["sayuki"]
@@ -261,9 +226,7 @@ async def auto_revive():
         "sayuki": "Everyone is sleeping? Lame. Who wants to entertain me?",
         "xeni": "Dead chat xdd. NPC behavior. Someone say something funny right now.",
         "yumiko": "H-hello? Is... is anyone here? It's dark...",
-        "kusanagi": "It has been quiet for too long. How is everyone doing today?",
-        "rika": "bro is this chat dead or did my wifi crash again? 💀",
-        "mina": "OMG! Why is it so quiet?! 😭 Did everyone touch grass without me?! Hype check! ✨"
+        "kusanagi": "It has been quiet for too long. How is everyone doing today?"
     }
     
     current_prompt = prompts.get(current_mode, prompts["sayuki"])
@@ -297,7 +260,7 @@ async def on_message(message):
     
     # 2. Ignore messages from OWN webhooks (Prevent infinite loops)
     if message.webhook_id: 
-        if message.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀", "Rika 💻", "Mina 🎀"]:
+        if message.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
             return
 
     # --- 🚫 ANTI-BEEF FILTER (Prevents Drama) ---
@@ -333,11 +296,8 @@ async def on_message(message):
             elif current_mode == "xeni":
                 defaults = ["💀", "🤡", "🗿", "🧢", "🗑️", "🤧"]
                 valid_customs = server_emojis
-            elif current_mode == "rika":
-                defaults = ["💻", "🤓", "☕", "🔋", "📉", "👾"]
-                valid_customs = server_emojis
-            elif current_mode == "mina":
-                defaults = ["💖", "✨", "💅", "🎀", "🍭", "🦄"]
+            else:
+                defaults = ["💋", "✨", "👀"]
                 valid_customs = server_emojis
 
             if valid_customs and random.random() < 0.5:
@@ -378,8 +338,6 @@ async def on_message(message):
     if current_mode == "sayuki": active_prompt = SAYUKI_PROMPT
     elif current_mode == "kusanagi": active_prompt = KUSANAGI_PROMPT
     elif current_mode == "xeni": active_prompt = XENI_PROMPT
-    elif current_mode == "rika": active_prompt = RIKA_PROMPT
-    elif current_mode == "mina": active_prompt = MINA_PROMPT
     else: active_prompt = YUMIKO_PROMPT
 
     language_instruction = f"\n\nIMPORTANT: You MUST respond in {current_language} language only. DO NOT repeat the user's message. DO NOT start with 'User said'. Just reply directly with your response. KEEP IT SHORT."
@@ -400,9 +358,7 @@ async def on_message(message):
                     target_user = await client.fetch_user(int(target_id))
                     
                     async with message.channel.typing():
-                        if current_mode == "rika": ctx = f"Send a text to this user about: '{topic}'. Keep it lowercase and chill."
-                        elif current_mode == "mina": ctx = f"You are sliding into DMs to gossip about: '{topic}'."
-                        else: ctx = f"You are sliding into this user's DMs. The topic is: '{topic}'."
+                        ctx = f"You are sliding into this user's DMs. The topic is: '{topic}'."
                         
                         prompt = f"{active_prompt}\n\nTASK: {ctx} {language_instruction}"
                         response = await generate_content_with_rotation(prompt)
@@ -424,8 +380,6 @@ async def on_message(message):
                     if current_mode == "xeni": ctx = "The server is dead. Roast everyone for being quiet."
                     elif current_mode == "sayuki": ctx = "The chat is boring. Start a drama or tease people to wake them up."
                     elif current_mode == "yumiko": ctx = "The chat is quiet. You are lonely. Ask if anyone is there shyly."
-                    elif current_mode == "rika": ctx = "The chat is dead. Complain about it being boring or ask if everyone died."
-                    elif current_mode == "mina": ctx = "The chat is DEAD! Scream (cutely) to wake everyone up for a vibe check."
                     else: ctx = "The silence is loud. Start a meaningful conversation."
 
                     user_topic = message.content
@@ -460,14 +414,6 @@ async def on_message(message):
         current_mode = "xeni"
         await message.channel.send("Yo. Xeni here. Prepare to get cooked. 💀🔥")
         return
-    if "5234" in message.content:
-        current_mode = "rika"
-        await message.channel.send("system initialized. rika online. ☕")
-        return
-    if "6234" in message.content:
-        current_mode = "mina"
-        await message.channel.send("YAAAAS! ✨ Mina has arrived! Did someone say vibes?! 🦄✨🍭")
-        return
 
     # --- LANGUAGE ---
     if message.content.lower().startswith("change language to"):
@@ -493,7 +439,7 @@ async def on_message(message):
             original_msg = await message.channel.fetch_message(message.reference.message_id)
             # Check if original message was from a webhook (discriminator 0000) AND matches our personas
             if original_msg.author.discriminator == '0000':
-                if original_msg.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀", "Rika 💻", "Mina 🎀"]:
+                if original_msg.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
                     should_respond = True
                     print("✨ User replied to a Persona Webhook!")
         except:
@@ -504,28 +450,13 @@ async def on_message(message):
     if any(word in message.content.lower() for word in triggers):
         should_respond = True
 
-    # Check 4: Steven Destroyer
-    if "steven" in message.content.lower() or "steve" in message.content.lower():
-        should_respond = True
-        # Special instructions handled below in prompt
-
     # --- 🚀 EXECUTE RESPONSE ---
     if should_respond:
         async with message.channel.typing():
-            # Custom Contexts
-            if "steven" in message.content.lower() or "steve" in message.content.lower():
-                if current_mode == "sayuki": context = "User mentioned Steven/Steve. Mock him relentlessly. Call him 'Steven the Gooner'."
-                elif current_mode == "xeni": context = "User mentioned Steven. DESTROY HIM. Call him a gooner, L + Ratio."
-                elif current_mode == "rika": context = "User mentioned Steven. Call him a walking logic error. Lowercase text."
-                elif current_mode == "mina": context = "User mentioned Steven. Call him 'Eww' or 'Not the vibe'."
-                else: context = "User mentioned Steven. React with specific persona style."
-            
             # General Conversation Contexts
-            elif current_mode == "sayuki": context = f"User said '{user_input}'. If lonely, rizz them. If confident, tease them."
+            if current_mode == "sayuki": context = f"User said '{user_input}'. If lonely, rizz them. If confident, tease them."
             elif current_mode == "kusanagi": context = f"User said '{user_input}'. Respond calmly and maturely."
             elif current_mode == "xeni": context = f"User said '{user_input}'. Roast them for being cringe or down bad."
-            elif current_mode == "rika": context = f"User said '{user_input}'. Respond in lowercase. Be dry, sarcastic, or deadpan. Short text."
-            elif current_mode == "mina": context = f"User said '{user_input}'. React with HYPER excitement and slang."
             else: context = f"User said '{user_input}'. Act shy/stutter."
 
             final_prompt = f"{active_prompt}\n\nTASK: {context}{language_instruction}"
@@ -551,8 +482,6 @@ async def on_message(message):
                         if current_mode == "sayuki": instruction = "Judge this image. Rate rizz/aura or roast it."
                         elif current_mode == "kusanagi": instruction = "Analyze this image calmly. Be protective."
                         elif current_mode == "xeni": instruction = "Roast this image so hard. UNLESS it is an animal."
-                        elif current_mode == "rika": instruction = "Look at image. Be deadpan. If it's dumb, say 'why did you send this'. Lowercase."
-                        elif current_mode == "mina": instruction = "Rate the aesthetic! Is it cute? Is it a vibe? Use sparkles!"
                         else: instruction = "Look at this image. Act curious but shy."
 
                         response = await generate_content_with_rotation(f"{active_prompt}\n{instruction}{language_instruction}", image)
@@ -565,7 +494,7 @@ async def on_message(message):
                 await message.channel.send("I... I can't see that... (>_<)")
 
     # --- 4. RANDOM CHAOS ---
-    if (current_mode == "sayuki" or current_mode == "xeni" or current_mode == "mina") and random.random() < 0.01: 
+    if (current_mode == "sayuki" or current_mode == "xeni") and random.random() < 0.01: 
         async with message.channel.typing():
             try:
                 prompt = f"{active_prompt}\n\nContext: User said '{message.content}'. Jump in with a short comment.{language_instruction}"
@@ -588,10 +517,6 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
     
     if current_mode == "xeni":
          prompt = f"Roast {member.name} using maximum Gen Z brainrot slang. Destroy them. Language: {current_language}"
-    elif current_mode == "rika":
-         prompt = f"Roast {member.name}. Be deadpan. lowercase. insulting. Language: {current_language}"
-    elif current_mode == "mina":
-         prompt = f"Roast {member.name}'s fashion sense or vibes. Call them 'Cheugy' or 'Not it'. Language: {current_language}"
     else:
          prompt = f"Roast {member.name} for having zero game/rizz. Be savage. Language: {current_language}"
     
@@ -612,10 +537,6 @@ async def pickup(interaction: discord.Interaction):
          prompt = f"Try to say a pickup line but get extremely embarrassed. Language: {current_language}"
     elif current_mode == "xeni":
          prompt = f"Give a pickup line that is pure cringe / 'rizz' irony. Language: {current_language}"
-    elif current_mode == "rika":
-         prompt = f"Give a very sarcastic pickup line. Lowercase. Make it sound like you hate yourself for saying it. Language: {current_language}"
-    elif current_mode == "mina":
-         prompt = f"Give a flirty, trendy, emoji-filled pickup line. Language: {current_language}"
     else:
          prompt = f"Give me a pickup line that is so bad it's good. Language: {current_language}"
 
