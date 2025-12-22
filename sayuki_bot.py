@@ -44,6 +44,7 @@ FFMPEG_OPTIONS = {
     'options': '-vn'
 }
 
+# 🔥 UPDATED OPTIONS TO FIX YOUTUBE BLOCKING 🔥
 YTDL_FORMAT_OPTIONS = {
     'format': 'bestaudio/best',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -55,7 +56,10 @@ YTDL_FORMAT_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
-    'source_address': '0.0.0.0' 
+    'source_address': '0.0.0.0',
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_FORMAT_OPTIONS)
@@ -73,6 +77,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         try:
             data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
         except Exception as e:
+            print(f"❌ YTDL Error: {e}") # Print error to console for debugging
             return None
 
         if 'entries' in data:
@@ -90,11 +95,6 @@ voice_client = None
 
 # --- 🧠 AI BRAIN SETUP ---
 async def generate_content_with_rotation(prompt, media=None, media_type="image"):
-    """
-    Handles Text, Images, and Audio processing.
-    media: content bytes or PIL Image
-    media_type: 'image' or 'audio'
-    """
     global GEMINI_KEYS
     
     for i, key in enumerate(GEMINI_KEYS):
@@ -104,11 +104,9 @@ async def generate_content_with_rotation(prompt, media=None, media_type="image")
 
             if media:
                 if media_type == "audio":
-                    # Audio needs to be passed as a dict with mime_type and data
                     content_parts = [prompt, {"mime_type": "audio/ogg", "data": media}]
                     response = await asyncio.to_thread(model.generate_content, content_parts)
                 else:
-                    # Images (PIL)
                     response = await asyncio.to_thread(model.generate_content, [prompt, media])
             else:
                 response = await asyncio.to_thread(model.generate_content, prompt)
@@ -337,17 +335,14 @@ async def on_message(message):
     # --- 🎙️ VOICE MESSAGE TRANSCRIPTION ---
     if message.attachments:
         attachment = message.attachments[0]
-        # Check if it's an audio file
         if attachment.content_type and "audio" in attachment.content_type:
              async with message.channel.typing():
                 try:
-                    # Download the audio bytes
                     async with aiohttp.ClientSession() as session:
                         async with session.get(attachment.url) as resp:
                             if resp.status != 200: return
                             audio_data = await resp.read()
                     
-                    # Send to Gemini for transcription
                     prompt = "Transcribe the following voice message exactly. Do not add any commentary. If unintelligible, say [Unintelligible]."
                     response = await generate_content_with_rotation(prompt, media=audio_data, media_type="audio")
                     
@@ -355,8 +350,7 @@ async def on_message(message):
                         await message.channel.send(f"🎤 **Transcription:**\n> {response.text}")
                     else:
                         await message.channel.send("❓ Couldn't transcribe that audio.")
-                    
-                    return # Stop her from replying/roasting
+                    return 
                 except Exception as e:
                     print(f"Transcription Error: {e}")
                     return
@@ -544,7 +538,6 @@ async def on_message(message):
         async with message.channel.typing():
             try:
                 attachment = message.attachments[0]
-                # Image check
                 if attachment.content_type and "image" in attachment.content_type:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(attachment.url) as resp:
