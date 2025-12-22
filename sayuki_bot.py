@@ -334,10 +334,10 @@ async def on_message(message):
         except Exception:
             pass
 
-    # --- 🎙️ VOICE MESSAGE TRANSCRIPTION (NEW) ---
+    # --- 🎙️ VOICE MESSAGE TRANSCRIPTION ---
     if message.attachments:
         attachment = message.attachments[0]
-        # Check if it's an audio file (Discord voice messages are usually audio/ogg or audio/x-wav)
+        # Check if it's an audio file
         if attachment.content_type and "audio" in attachment.content_type:
              async with message.channel.typing():
                 try:
@@ -356,8 +356,7 @@ async def on_message(message):
                     else:
                         await message.channel.send("❓ Couldn't transcribe that audio.")
                     
-                    # RETURN HERE to stop her from replying/roasting the VM
-                    return 
+                    return # Stop her from replying/roasting
                 except Exception as e:
                     print(f"Transcription Error: {e}")
                     return
@@ -632,6 +631,29 @@ async def setup_vibe(interaction: discord.Interaction):
     await interaction.response.send_message("Menu spawned.", ephemeral=True)
 
 # --- 🎵 MUSIC COMMANDS ---
+@client.command(name="music", help="Shows the music help menu")
+async def music_help_command(ctx):
+    embed = discord.Embed(title="🎵 DJ Sayuki Menu", description="Use these commands to vibe:", color=discord.Color.pink())
+    embed.add_field(name="!play <song name>", value="Plays a song from YT/SoundCloud. Auto-joins VC.", inline=False)
+    embed.add_field(name="!join", value="Summons me to your voice channel.", inline=False)
+    embed.add_field(name="!skip", value="Skips the current song.", inline=False)
+    embed.add_field(name="!leave", value="Stops music and disconnects me.", inline=False)
+    embed.set_footer(text="Spotify links don't work! Just type the song name instead.")
+    await ctx.send(embed=embed)
+
+@client.command(name="join", help="Summons the bot to your voice channel")
+async def join(ctx):
+    if is_sleeping: return
+    if not ctx.author.voice:
+        await ctx.send("You need to be in a voice channel first! 💀")
+        return
+    channel = ctx.author.voice.channel
+    if ctx.voice_client is not None:
+        await ctx.voice_client.move_to(channel)
+    else:
+        await channel.connect()
+    await ctx.send("I'm here! Ready to drop some beats. 🎧")
+
 @client.command(name="play", help="Plays a song from YouTube/SoundCloud")
 async def play(ctx, *, query):
     if is_sleeping: return
@@ -691,6 +713,10 @@ async def stop(ctx):
         music_queue.clear()
         await ctx.voice_client.disconnect()
         await ctx.send("🛑 Stopped. Bye bye!")
+
+@client.command(name="leave", help="Alias for stop")
+async def leave(ctx):
+    await stop(ctx)
 
 keep_alive() 
 client.run(DISCORD_TOKEN)
