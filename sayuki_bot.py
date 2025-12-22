@@ -44,7 +44,7 @@ FFMPEG_OPTIONS = {
     'options': '-vn'
 }
 
-# 🔥 UPDATED OPTIONS TO FIX YOUTUBE BLOCKING 🔥
+# 🔥 UPDATED OPTIONS TO FIX YOUTUBE BLOCKING & ENABLE NAME SEARCH 🔥
 YTDL_FORMAT_OPTIONS = {
     'format': 'bestaudio/best',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -55,7 +55,7 @@ YTDL_FORMAT_OPTIONS = {
     'logtostderr': False,
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'auto',
+    'default_search': 'ytsearch', # 👈 CHANGED: Forces YouTube search if it's not a link
     'source_address': '0.0.0.0',
     'http_headers': {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -659,18 +659,25 @@ async def play(ctx, *, query):
     elif ctx.voice_client.channel != channel:
         await ctx.voice_client.move_to(channel)
 
-    if "spotify.com" in query:
+    # 🚫 SPOTIFY BLOCKER (Since they don't work well)
+    if "spotify.com" in query.lower():
         async with ctx.typing():
-            prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them you can't play Spotify directly due to DRM, but they should just type the song name and you'll find it on YouTube."
+            prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them Spotify doesn't work (DRM) and they should just type the song name directly so you can find it on YouTube."
             response = await generate_content_with_rotation(prompt)
             if response: await send_smart_message(ctx.channel, response.text)
-            else: await ctx.send("Spotify links don't work (DRM). Just type the song name! 🎧")
+            else: await ctx.send("❌ Spotify links don't work (DRM). Just type the **song name** instead! 🎧")
         return
 
-    msg = await ctx.send("🔎 Searching...")
-    player = await YTDLSource.from_url(query, loop=client.loop, stream=True)
+    msg = await ctx.send(f"🔎 **Searching YouTube for:** `{query}`...")
+    
+    try:
+        player = await YTDLSource.from_url(query, loop=client.loop, stream=True)
+    except Exception as e:
+        print(f"Play Error: {e}")
+        player = None
+
     if player is None:
-        await msg.edit(content="Could not find that song... 😔")
+        await msg.edit(content="Could not find that song... (YouTube might be blocking or search failed 😔)")
         return
 
     if ctx.voice_client.is_playing():
