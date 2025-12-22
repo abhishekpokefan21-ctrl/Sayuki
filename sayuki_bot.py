@@ -10,6 +10,7 @@ from PIL import Image
 from google.api_core import exceptions
 import datetime
 import os
+import yt_dlp
 from keep_alive import keep_alive
 from dotenv import load_dotenv
 
@@ -37,10 +38,58 @@ PERSONA_URLS = {
     "xeni": "https://res.cloudinary.com/drlvdpibe/image/upload/v1763925512/612b292a8ba3106dde7d8ed0e7aef5d4_jegcub.jpg"
 }
 
+# --- 🎵 MUSIC SETUP ---
+# FFMPEG Options to ensure stable streaming
+FFMPEG_OPTIONS = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn'
+}
+
+# YT-DLP Options (Search & Audio only)
+YTDL_FORMAT_OPTIONS = {
+    'format': 'bestaudio/best',
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': False,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
+}
+
+ytdl = yt_dlp.YoutubeDL(YTDL_FORMAT_OPTIONS)
+
+class YTDLSource(discord.PCMVolumeTransformer):
+    def __init__(self, source, *, data, volume=0.5):
+        super().__init__(source, volume)
+        self.data = data
+        self.title = data.get('title')
+        self.url = data.get('url')
+
+    @classmethod
+    async def from_url(cls, url, *, loop=None, stream=False):
+        loop = loop or asyncio.get_event_loop()
+        try:
+            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
+        except Exception as e:
+            return None
+
+        if 'entries' in data:
+            # take first item from a playlist
+            data = data['entries'][0]
+
+        filename = data['url'] if stream else ytdl.prepare_filename(data)
+        return cls(discord.FFmpegPCMAudio(filename, **FFMPEG_OPTIONS), data=data)
+
 # --- GLOBAL STATE ---
 current_mode = "sayuki" 
 current_language = "English" 
 is_sleeping = False 
+music_queue = [] # List of songs
+voice_client = None # Current voice connection
 
 # --- 🧠 AI BRAIN SETUP ---
 async def generate_content_with_rotation(prompt, image=None):
@@ -462,7 +511,6 @@ async def on_message(message):
     if should_respond:
         async with message.channel.typing():
             
-            # 🔥 ACTIVITY STALKER INJECTION 🔥
             user_activity = get_user_activity(message.author)
             
             # General Conversation Contexts
@@ -509,7 +557,6 @@ async def on_message(message):
     if (current_mode == "sayuki" or current_mode == "xeni") and random.random() < 0.01: 
         async with message.channel.typing():
             try:
-                # 🔥 ACTIVITY STALKER FOR RANDOM COMMENTS TOO
                 user_activity = get_user_activity(message.author)
                 
                 prompt = f"{active_prompt}\n\nContext: User said '{message.content}'. {user_activity} Jump in with a short comment.{language_instruction}"
@@ -518,7 +565,7 @@ async def on_message(message):
                     await send_smart_message(message.channel, response.text)
             except Exception: pass
 
-# --- ⚔️ SLASH COMMANDS ---
+# --- ⚔️ SLASH COMMANDS (FUN) ---
 @client.tree.command(name="roast", description="Humble someone real quick")
 async def roast(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer()
@@ -530,7 +577,6 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
         await interaction.followup.send(f"I-I can't roast {member.mention}... t-that's mean! (>_<)")
         return
     
-    # 🔥 PASS ACTIVITY TO ROAST
     user_activity = get_user_activity(member)
     
     if current_mode == "xeni":
@@ -572,6 +618,77 @@ async def setup_vibe(interaction: discord.Interaction):
     embed = discord.Embed(title="✨ What's your energy?", description="Choose wisely...", color=discord.Color.purple())
     await interaction.channel.send(embed=embed, view=RoleView())
     await interaction.response.send_message("Menu spawned.", ephemeral=True)
+
+# --- 🎵 MUSIC COMMANDS ---
+@client.command(name="play", help="Plays a song from YouTube/SoundCloud")
+async def play(ctx, *, query):
+    if is_sleeping: return
+    
+    if not ctx.author.voice:
+        await ctx.send("Bro you need to be in a voice channel first! 💀")
+        return
+
+    channel = ctx.author.voice.channel
+    if ctx.voice_client is None:
+        await channel.connect()
+    elif ctx.voice_client.channel != channel:
+        await ctx.voice_client.move_to(channel)
+
+    # If it's a Spotify link, gently reject it but offer help
+    if "spotify.com" in query:
+        async with ctx.typing():
+            prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them you can't play Spotify directly due to DRM, but they should just type the song name and you'll find it on YouTube."
+            response = await generate_content_with_rotation(prompt)
+            if response: await send_smart_message(ctx.channel, response.text)
+            else: await ctx.send("Spotify links don't work (DRM). Just type the song name! 🎧")
+        return
+
+    msg = await ctx.send("🔎 Searching...")
+    
+    player = await YTDLSource.from_url(query, loop=client.loop, stream=True)
+    if player is None:
+        await msg.edit(content="Could not find that song... 😔")
+        return
+
+    if ctx.voice_client.is_playing():
+        music_queue.append(player)
+        await msg.edit(content=f"📝 **Added to queue:** {player.title}")
+    else:
+        ctx.voice_client.play(player, after=lambda e: play_next(ctx))
+        await msg.edit(content=f"▶️ **Now Playing:** {player.title}")
+        
+        # DJ COMMENTARY
+        if random.random() < 0.7: # 70% chance to comment
+            prompt = f"{active_prompt}\nTASK: User just started playing '{player.title}'. Act like a DJ. Announce the song or roast/praise the choice. {language_instruction}"
+            response = await generate_content_with_rotation(prompt)
+            if response: await send_smart_message(ctx.channel, response.text)
+
+def play_next(ctx):
+    if music_queue:
+        next_song = music_queue.pop(0)
+        ctx.voice_client.play(next_song, after=lambda e: play_next(ctx))
+        asyncio.run_coroutine_threadsafe(ctx.send(f"▶️ **Now Playing:** {next_song.title}"), client.loop)
+    else:
+        pass # Queue empty
+
+@client.command(name="skip", help="Skips the current song")
+async def skip(ctx):
+    if ctx.voice_client and ctx.voice_client.is_playing():
+        ctx.voice_client.stop()
+        await ctx.send("⏭️ Skipped!")
+        
+        # DJ COMMENTARY
+        if random.random() < 0.5:
+             prompt = f"{active_prompt}\nTASK: User skipped the song. React to it. {language_instruction}"
+             response = await generate_content_with_rotation(prompt)
+             if response: await send_smart_message(ctx.channel, response.text)
+
+@client.command(name="stop", help="Stops music and disconnects")
+async def stop(ctx):
+    if ctx.voice_client:
+        music_queue.clear()
+        await ctx.voice_client.disconnect()
+        await ctx.send("🛑 Stopped. Bye bye!")
 
 keep_alive() 
 client.run(DISCORD_TOKEN)
