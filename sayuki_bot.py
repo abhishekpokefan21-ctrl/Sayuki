@@ -27,7 +27,6 @@ TARGET_CHANNEL_ID = 1439872572039893083
 MASTER_ID = 454565617538957313 
 
 # --- 🛡️ PERMISSIONS SETUP ---
-# Anyone with these Role Names can use "sleep/wake" commands
 AUTHORIZED_ROLES = ["Admin", "Moderator", "Owner", "Sayuki Handler"] 
 
 # --- 🖼️ PERSONA IMAGES ---
@@ -70,6 +69,7 @@ async def generate_content_with_rotation(prompt, image=None):
 SAYUKI_PROMPT = """
 You are Sayuki. A cute but menacing anime girl bot on Discord.
 You are a master of "rizz" and enjoy teasing people relentlessly.
+If the user is listening to music or playing a game (provided in context), COMMENT ON IT. Tease their taste or say you like it.
 If someone tries some amazing catchy line on you or they act cheeky, tell that you are feeling flustered.
 You drink chaos after making fun of peeps.
 You are the most savage rizzler who can always act so cool that people will go crazily amazed.
@@ -84,6 +84,7 @@ keep it 3-4 lines max.
 KUSANAGI_PROMPT = """
 You are Kusanagi. A serious non-flirty girl, warm hearted and hard to please.
 You are calm, mature, and protective.
+If the user is playing a game or listening to music, acknowledge it politely or ask if it helps them focus.
 Your words max length are just 3-4 lines
 do not be boring like a bot, you act like a mid age anime woman.
 You will be like a mommy figure
@@ -95,6 +96,7 @@ YUMIKO_PROMPT = """
 You are Yumiko. A very shy, socially anxious, and sweet anime girl.
 You stutter frequently (e.g., "u-um...", "s-sorry...", "I-I think..").
 You use text emojis often like (>_<), (o_o), 👉👈, or (>///<).
+If the user is playing a game or song, act curious about it but shy to ask.
 You are easily startled and apologize for everything.
 If someone flirts, you panic, overheat, and hide. You never insult anyone.
 You often say someting really tempting and flirty but instantly go sorry.
@@ -105,6 +107,7 @@ keep it 3-4 lines max.
 XENI_PROMPT = """
 You are Xeni. You are FULL Gen Z Roast Mode.
 You have absolutely zero filter. You are here to humble people.
+If the user is listening to a song or playing a game, JUDGE IT HARD. Call their taste "mid" or "NPC behavior" unless it's actually goated.
 You use heavy Gen Z/Brainrot slang: ( skibidi, let him cook, cringe, mid, delulu, cap, touch grass, opp, gyatt, rizzler, ohio, npc behavior).
 You do not care about being nice. If someone says something stupid, roast them for being an NPC.
 If someone flirts, call them down bad or say "bombastic side eye."
@@ -115,14 +118,33 @@ Keep it short, savage, and disrespectful.
 """
 
 # --- 🤖 BOT SETUP ---
-intents = discord.Intents.all()
+intents = discord.Intents.all() # Needed for activities
 client = commands.Bot(command_prefix="!", intents=intents)
+
+# --- 🕵️ ACTIVITY STALKER HELPER ---
+def get_user_activity(member):
+    """Checks what the user is doing (Spotify, Game, Stream)"""
+    if not member or member.bot: return ""
+    
+    status_list = []
+    
+    # Check for Spotify
+    for activity in member.activities:
+        if isinstance(activity, discord.Spotify):
+            status_list.append(f"listening to '{activity.title}' by {activity.artist}")
+        elif isinstance(activity, discord.Game):
+            status_list.append(f"playing '{activity.name}'")
+        elif isinstance(activity, discord.Streaming):
+            status_list.append(f"streaming '{activity.name}'")
+        elif activity.type == discord.ActivityType.listening:
+             status_list.append(f"listening to '{activity.name}'")
+    
+    if status_list:
+        return f" [CURRENTLY: User is {', '.join(status_list)}]"
+    return ""
 
 # --- 🖌️ WEBHOOK PERSONA ENGINE ---
 async def send_smart_message(destination, text):
-    """
-    Determines if we should use a Webhook (Persona PFP) or Standard Send (DMs).
-    """
     # 1. If it's a DM, we can't use webhooks. Use standard bot.
     if isinstance(destination, discord.DMChannel) or isinstance(destination, discord.User) or isinstance(destination, discord.Member):
         await destination.send(text)
@@ -130,7 +152,6 @@ async def send_smart_message(destination, text):
 
     # 2. If it's a Server Channel, try to use Webhook for the Persona PFP
     try:
-        # Define Identity based on Mode
         if current_mode == "sayuki":
             p_name = "Sayuki 💋"
             p_avatar = PERSONA_URLS["sayuki"]
@@ -147,19 +168,16 @@ async def send_smart_message(destination, text):
             p_name = "Sayuki"
             p_avatar = PERSONA_URLS["sayuki"]
 
-        # Validate URL
         if "http" not in p_avatar: 
             await destination.send(text) 
             return
 
-        # Manage Webhooks
         webhooks = await destination.webhooks()
         webhook = discord.utils.get(webhooks, name="Sayuki_Proxy")
         
         if webhook is None:
             webhook = await destination.create_webhook(name="Sayuki_Proxy")
 
-        # Send as Persona
         await webhook.send(content=text, username=p_name, avatar_url=p_avatar)
 
     except Exception as e:
@@ -204,8 +222,6 @@ async def auto_revive():
             last_message = msg
         
         if last_message:
-            # Check if the last message was sent by the bot OR one of its webhooks
-            # We check the bot ID or if the name contains "Sayuki/Xeni/etc"
             is_me = last_message.author.id == client.user.id
             if last_message.author.bot and "Sayuki" in last_message.author.name: is_me = True
             
@@ -254,32 +270,26 @@ async def on_message(message):
     global current_language 
     global is_sleeping
 
-    # 1. Ignore own standard messages
     if message.author.id == client.user.id:
         return
     
-    # 2. Ignore messages from OWN webhooks (Prevent infinite loops)
     if message.webhook_id: 
         if message.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
             return
 
-    # --- 🚫 ANTI-BEEF FILTER (Prevents Drama) ---
-    # Normalize text: remove spaces/symbols, convert to lowercase
-    # e.g., "B a d d i e s" becomes "baddies", "Bad dies" becomes "baddies"
+    # --- 🚫 ANTI-BEEF FILTER ---
     clean_text = ''.join(char for char in message.content.lower() if char.isalnum())
-    
     if "baddies" in clean_text:
         try:
             await message.delete()
-            # Optional: Warn the user and then delete warning (to keep chat clean)
             warning = await message.channel.send(f"{message.author.mention} We don't bring that drama here. 🚫")
             await asyncio.sleep(4)
             await warning.delete()
-            return # Stop processing this message completely
+            return 
         except Exception:
             pass
 
-    # --- 🆕 REACTION LOGIC (Top Priority - Reacts to User Messages) ---
+    # --- 🆕 REACTION LOGIC ---
     if not message.webhook_id and random.random() < 0.10: 
         try:
             server_emojis = message.guild.emojis if message.guild else []
@@ -308,17 +318,17 @@ async def on_message(message):
         except Exception:
             pass
 
-    # --- 🛡️ PERMISSION CHECK HELPER ---
+    # --- 🛡️ PERMISSION CHECK ---
     is_authorized = False
     if message.author.id == MASTER_ID:
         is_authorized = True
-    elif isinstance(message.author, discord.Member): # Check roles if in server
+    elif isinstance(message.author, discord.Member): 
         if message.author.guild_permissions.administrator:
             is_authorized = True
         elif any(role.name in AUTHORIZED_ROLES for role in message.author.roles):
             is_authorized = True
 
-    # --- 💤 SLEEP/WAKE PROTOCOL ---
+    # --- 💤 SLEEP/WAKE ---
     if is_sleeping:
         if is_authorized and "wake up" in message.content.lower():
             is_sleeping = False
@@ -359,7 +369,6 @@ async def on_message(message):
                     
                     async with message.channel.typing():
                         ctx = f"You are sliding into this user's DMs. The topic is: '{topic}'."
-                        
                         prompt = f"{active_prompt}\n\nTASK: {ctx} {language_instruction}"
                         response = await generate_content_with_rotation(prompt)
                         
@@ -424,7 +433,7 @@ async def on_message(message):
             return
         except: pass
 
-    # --- 🧠 SMART REPLY LOGIC (The "Reply to Webhook" Fix) ---
+    # --- 🧠 SMART REPLY LOGIC ---
     should_respond = False
     user_input = message.content
 
@@ -437,7 +446,6 @@ async def on_message(message):
     if message.reference and not should_respond:
         try:
             original_msg = await message.channel.fetch_message(message.reference.message_id)
-            # Check if original message was from a webhook (discriminator 0000) AND matches our personas
             if original_msg.author.discriminator == '0000':
                 if original_msg.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
                     should_respond = True
@@ -453,11 +461,15 @@ async def on_message(message):
     # --- 🚀 EXECUTE RESPONSE ---
     if should_respond:
         async with message.channel.typing():
+            
+            # 🔥 ACTIVITY STALKER INJECTION 🔥
+            user_activity = get_user_activity(message.author)
+            
             # General Conversation Contexts
-            if current_mode == "sayuki": context = f"User said '{user_input}'. If lonely, rizz them. If confident, tease them."
-            elif current_mode == "kusanagi": context = f"User said '{user_input}'. Respond calmly and maturely."
-            elif current_mode == "xeni": context = f"User said '{user_input}'. Roast them for being cringe or down bad."
-            else: context = f"User said '{user_input}'. Act shy/stutter."
+            if current_mode == "sayuki": context = f"User said '{user_input}'. {user_activity} If lonely, rizz them. If confident, tease them."
+            elif current_mode == "kusanagi": context = f"User said '{user_input}'. {user_activity} Respond calmly and maturely."
+            elif current_mode == "xeni": context = f"User said '{user_input}'. {user_activity} Roast them for being cringe or down bad."
+            else: context = f"User said '{user_input}'. {user_activity} Act shy/stutter."
 
             final_prompt = f"{active_prompt}\n\nTASK: {context}{language_instruction}"
             response = await generate_content_with_rotation(final_prompt)
@@ -497,7 +509,10 @@ async def on_message(message):
     if (current_mode == "sayuki" or current_mode == "xeni") and random.random() < 0.01: 
         async with message.channel.typing():
             try:
-                prompt = f"{active_prompt}\n\nContext: User said '{message.content}'. Jump in with a short comment.{language_instruction}"
+                # 🔥 ACTIVITY STALKER FOR RANDOM COMMENTS TOO
+                user_activity = get_user_activity(message.author)
+                
+                prompt = f"{active_prompt}\n\nContext: User said '{message.content}'. {user_activity} Jump in with a short comment.{language_instruction}"
                 response = await generate_content_with_rotation(prompt)
                 if response: 
                     await send_smart_message(message.channel, response.text)
@@ -515,10 +530,13 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
         await interaction.followup.send(f"I-I can't roast {member.mention}... t-that's mean! (>_<)")
         return
     
+    # 🔥 PASS ACTIVITY TO ROAST
+    user_activity = get_user_activity(member)
+    
     if current_mode == "xeni":
-         prompt = f"Roast {member.name} using maximum Gen Z brainrot slang. Destroy them. Language: {current_language}"
+         prompt = f"Roast {member.name}. {user_activity} Use maximum Gen Z brainrot slang. Destroy them. Language: {current_language}"
     else:
-         prompt = f"Roast {member.name} for having zero game/rizz. Be savage. Language: {current_language}"
+         prompt = f"Roast {member.name}. {user_activity} Mock their rizz/game. Be savage. Language: {current_language}"
     
     response = await generate_content_with_rotation(prompt)
     if response: 
