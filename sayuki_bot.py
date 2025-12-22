@@ -39,13 +39,11 @@ PERSONA_URLS = {
 }
 
 # --- 🎵 MUSIC SETUP ---
-# FFMPEG Options to ensure stable streaming
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn'
 }
 
-# YT-DLP Options (Search & Audio only)
 YTDL_FORMAT_OPTIONS = {
     'format': 'bestaudio/best',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -57,7 +55,7 @@ YTDL_FORMAT_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
-    'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
+    'source_address': '0.0.0.0' 
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_FORMAT_OPTIONS)
@@ -78,7 +76,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
             return None
 
         if 'entries' in data:
-            # take first item from a playlist
             data = data['entries'][0]
 
         filename = data['url'] if stream else ytdl.prepare_filename(data)
@@ -88,11 +85,16 @@ class YTDLSource(discord.PCMVolumeTransformer):
 current_mode = "sayuki" 
 current_language = "English" 
 is_sleeping = False 
-music_queue = [] # List of songs
-voice_client = None # Current voice connection
+music_queue = [] 
+voice_client = None 
 
 # --- 🧠 AI BRAIN SETUP ---
-async def generate_content_with_rotation(prompt, image=None):
+async def generate_content_with_rotation(prompt, media=None, media_type="image"):
+    """
+    Handles Text, Images, and Audio processing.
+    media: content bytes or PIL Image
+    media_type: 'image' or 'audio'
+    """
     global GEMINI_KEYS
     
     for i, key in enumerate(GEMINI_KEYS):
@@ -100,8 +102,14 @@ async def generate_content_with_rotation(prompt, image=None):
             genai.configure(api_key=key)
             model = genai.GenerativeModel('gemini-2.5-flash') 
 
-            if image:
-                response = await asyncio.to_thread(model.generate_content, [prompt, image])
+            if media:
+                if media_type == "audio":
+                    # Audio needs to be passed as a dict with mime_type and data
+                    content_parts = [prompt, {"mime_type": "audio/ogg", "data": media}]
+                    response = await asyncio.to_thread(model.generate_content, content_parts)
+                else:
+                    # Images (PIL)
+                    response = await asyncio.to_thread(model.generate_content, [prompt, media])
             else:
                 response = await asyncio.to_thread(model.generate_content, prompt)
             
@@ -167,17 +175,13 @@ Keep it short, savage, and disrespectful.
 """
 
 # --- 🤖 BOT SETUP ---
-intents = discord.Intents.all() # Needed for activities
+intents = discord.Intents.all()
 client = commands.Bot(command_prefix="!", intents=intents)
 
 # --- 🕵️ ACTIVITY STALKER HELPER ---
 def get_user_activity(member):
-    """Checks what the user is doing (Spotify, Game, Stream)"""
     if not member or member.bot: return ""
-    
     status_list = []
-    
-    # Check for Spotify
     for activity in member.activities:
         if isinstance(activity, discord.Spotify):
             status_list.append(f"listening to '{activity.title}' by {activity.artist}")
@@ -194,12 +198,10 @@ def get_user_activity(member):
 
 # --- 🖌️ WEBHOOK PERSONA ENGINE ---
 async def send_smart_message(destination, text):
-    # 1. If it's a DM, we can't use webhooks. Use standard bot.
     if isinstance(destination, discord.DMChannel) or isinstance(destination, discord.User) or isinstance(destination, discord.Member):
         await destination.send(text)
         return
 
-    # 2. If it's a Server Channel, try to use Webhook for the Persona PFP
     try:
         if current_mode == "sayuki":
             p_name = "Sayuki 💋"
@@ -256,7 +258,7 @@ class RoleView(View):
         super().__init__(timeout=None)
         self.add_item(ColorSelect())
 
-# --- 💀 NECROMANCER LOOP (Auto-Revive) ---
+# --- 💀 NECROMANCER LOOP ---
 @tasks.loop(hours=12) 
 async def auto_revive():
     if is_sleeping: return
@@ -274,14 +276,10 @@ async def auto_revive():
             is_me = last_message.author.id == client.user.id
             if last_message.author.bot and "Sayuki" in last_message.author.name: is_me = True
             
-            if is_me:
-                print("🛑 I (or my webhook) was the last one to speak. Not double texting.")
-                return
+            if is_me: return
 
             time_diff = datetime.datetime.now(datetime.timezone.utc) - last_message.created_at
-            if time_diff.total_seconds() < 21600: 
-                print("Chat is active, skipping revive.")
-                return 
+            if time_diff.total_seconds() < 21600: return 
     except Exception:
         pass 
 
@@ -306,10 +304,8 @@ async def on_ready():
     print(f"😈 {client.user} is ONLINE! Initial Mode: {current_mode}")
     if not auto_revive.is_running():
         auto_revive.start()
-        print("💀 Necromancer Loop Started.")
     try:
-        synced = await client.tree.sync()
-        print(f"Synced {len(synced)} commands.")
+        await client.tree.sync()
     except Exception as e:
         print(f"Sync error: {e}")
 
@@ -338,11 +334,38 @@ async def on_message(message):
         except Exception:
             pass
 
+    # --- 🎙️ VOICE MESSAGE TRANSCRIPTION (NEW) ---
+    if message.attachments:
+        attachment = message.attachments[0]
+        # Check if it's an audio file (Discord voice messages are usually audio/ogg or audio/x-wav)
+        if attachment.content_type and "audio" in attachment.content_type:
+             async with message.channel.typing():
+                try:
+                    # Download the audio bytes
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(attachment.url) as resp:
+                            if resp.status != 200: return
+                            audio_data = await resp.read()
+                    
+                    # Send to Gemini for transcription
+                    prompt = "Transcribe the following voice message exactly. Do not add any commentary. If unintelligible, say [Unintelligible]."
+                    response = await generate_content_with_rotation(prompt, media=audio_data, media_type="audio")
+                    
+                    if response:
+                        await message.channel.send(f"🎤 **Transcription:**\n> {response.text}")
+                    else:
+                        await message.channel.send("❓ Couldn't transcribe that audio.")
+                    
+                    # RETURN HERE to stop her from replying/roasting the VM
+                    return 
+                except Exception as e:
+                    print(f"Transcription Error: {e}")
+                    return
+
     # --- 🆕 REACTION LOGIC ---
     if not message.webhook_id and random.random() < 0.10: 
         try:
             server_emojis = message.guild.emojis if message.guild else []
-            
             if current_mode == "sayuki":
                 defaults = ["💋", "💅", "😏", "🤭", "👀", "🔥"]
                 valid_customs = [e for e in server_emojis if not e.animated] 
@@ -383,14 +406,12 @@ async def on_message(message):
             is_sleeping = False
             await client.change_presence(status=discord.Status.online)
             await message.channel.send("Yawn... I'm up. Who missed me? 👀")
-            print(f"🟢 Bot Woken Up by {message.author.name}")
         return 
 
     if not is_sleeping and is_authorized and "go to sleep" in message.content.lower():
         is_sleeping = True
         await client.change_presence(status=discord.Status.invisible) 
         await message.channel.send("Fine. I'm going offline. Don't burn the server down without me. 💤")
-        print(f"🔴 Bot put to sleep by {message.author.name}")
         return
 
     # --- DETERMINE ACTIVE PROMPT ---
@@ -404,7 +425,6 @@ async def on_message(message):
     # --- 👻 GHOST MODE ---
     if isinstance(message.channel, discord.DMChannel):
         if message.author.id == MASTER_ID:
-            # --- 🕵️ DM SNIPER ---
             if message.content.lower().startswith("dm "):
                 try:
                     parts = message.content.split(" ", 2)
@@ -430,10 +450,8 @@ async def on_message(message):
                     await message.channel.send(f"Failed to DM: {e}")
                 return 
 
-            # --- 🏙️ SERVER GHOST ---
             target_channel = client.get_channel(TARGET_CHANNEL_ID)
             if target_channel:
-                response = None
                 async with message.channel.typing():
                     if current_mode == "xeni": ctx = "The server is dead. Roast everyone for being quiet."
                     elif current_mode == "sayuki": ctx = "The chat is boring. Start a drama or tease people to wake them up."
@@ -486,23 +504,19 @@ async def on_message(message):
     should_respond = False
     user_input = message.content
 
-    # Check 1: Direct Mention
     if client.user.mentioned_in(message):
         should_respond = True
         user_input = message.content.replace(f"<@{client.user.id}>", "").strip()
 
-    # Check 2: Reply to a Persona Webhook
     if message.reference and not should_respond:
         try:
             original_msg = await message.channel.fetch_message(message.reference.message_id)
             if original_msg.author.discriminator == '0000':
                 if original_msg.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
                     should_respond = True
-                    print("✨ User replied to a Persona Webhook!")
         except:
             pass 
 
-    # Check 3: Trigger Words
     triggers = ["love", "single", "date", "rizz", "simp", "lonely", "cute", "hot", "gf", "bf", "bored"]
     if any(word in message.content.lower() for word in triggers):
         should_respond = True
@@ -510,10 +524,8 @@ async def on_message(message):
     # --- 🚀 EXECUTE RESPONSE ---
     if should_respond:
         async with message.channel.typing():
-            
             user_activity = get_user_activity(message.author)
             
-            # General Conversation Contexts
             if current_mode == "sayuki": context = f"User said '{user_input}'. {user_activity} If lonely, rizz them. If confident, tease them."
             elif current_mode == "kusanagi": context = f"User said '{user_input}'. {user_activity} Respond calmly and maturely."
             elif current_mode == "xeni": context = f"User said '{user_input}'. {user_activity} Roast them for being cringe or down bad."
@@ -528,26 +540,28 @@ async def on_message(message):
                 await message.channel.send("My brain is fried... (Quota Exceeded)")
         return 
 
-    # --- 3. VISION MODE ---
+    # --- 3. VISION MODE (IMAGE) ---
     if message.attachments and client.user.mentioned_in(message):
         async with message.channel.typing():
             try:
                 attachment = message.attachments[0]
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(attachment.url) as resp:
-                        if resp.status != 200: return
-                        img_data = await resp.read()
-                        image = Image.open(io.BytesIO(img_data))
-                        
-                        if current_mode == "sayuki": instruction = "Judge this image. Rate rizz/aura or roast it."
-                        elif current_mode == "kusanagi": instruction = "Analyze this image calmly. Be protective."
-                        elif current_mode == "xeni": instruction = "Roast this image so hard. UNLESS it is an animal."
-                        else: instruction = "Look at this image. Act curious but shy."
+                # Image check
+                if attachment.content_type and "image" in attachment.content_type:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(attachment.url) as resp:
+                            if resp.status != 200: return
+                            img_data = await resp.read()
+                            image = Image.open(io.BytesIO(img_data))
+                            
+                            if current_mode == "sayuki": instruction = "Judge this image. Rate rizz/aura or roast it."
+                            elif current_mode == "kusanagi": instruction = "Analyze this image calmly. Be protective."
+                            elif current_mode == "xeni": instruction = "Roast this image so hard. UNLESS it is an animal."
+                            else: instruction = "Look at this image. Act curious but shy."
 
-                        response = await generate_content_with_rotation(f"{active_prompt}\n{instruction}{language_instruction}", image)
-                        if response: 
-                            await send_smart_message(message.channel, response.text)
-                        else: await message.channel.send("I... I can't see anything right now... (>_<)")
+                            response = await generate_content_with_rotation(f"{active_prompt}\n{instruction}{language_instruction}", media=image, media_type="image")
+                            if response: 
+                                await send_smart_message(message.channel, response.text)
+                            else: await message.channel.send("I... I can't see anything right now... (>_<)")
                         return
             except Exception as e:
                 print(f"Vision Error: {e}")
@@ -558,14 +572,13 @@ async def on_message(message):
         async with message.channel.typing():
             try:
                 user_activity = get_user_activity(message.author)
-                
                 prompt = f"{active_prompt}\n\nContext: User said '{message.content}'. {user_activity} Jump in with a short comment.{language_instruction}"
                 response = await generate_content_with_rotation(prompt)
                 if response: 
                     await send_smart_message(message.channel, response.text)
             except Exception: pass
 
-# --- ⚔️ SLASH COMMANDS (FUN) ---
+# --- ⚔️ SLASH COMMANDS ---
 @client.tree.command(name="roast", description="Humble someone real quick")
 async def roast(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer()
@@ -578,7 +591,6 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
         return
     
     user_activity = get_user_activity(member)
-    
     if current_mode == "xeni":
          prompt = f"Roast {member.name}. {user_activity} Use maximum Gen Z brainrot slang. Destroy them. Language: {current_language}"
     else:
@@ -623,18 +635,15 @@ async def setup_vibe(interaction: discord.Interaction):
 @client.command(name="play", help="Plays a song from YouTube/SoundCloud")
 async def play(ctx, *, query):
     if is_sleeping: return
-    
     if not ctx.author.voice:
         await ctx.send("Bro you need to be in a voice channel first! 💀")
         return
-
     channel = ctx.author.voice.channel
     if ctx.voice_client is None:
         await channel.connect()
     elif ctx.voice_client.channel != channel:
         await ctx.voice_client.move_to(channel)
 
-    # If it's a Spotify link, gently reject it but offer help
     if "spotify.com" in query:
         async with ctx.typing():
             prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them you can't play Spotify directly due to DRM, but they should just type the song name and you'll find it on YouTube."
@@ -644,7 +653,6 @@ async def play(ctx, *, query):
         return
 
     msg = await ctx.send("🔎 Searching...")
-    
     player = await YTDLSource.from_url(query, loop=client.loop, stream=True)
     if player is None:
         await msg.edit(content="Could not find that song... 😔")
@@ -656,9 +664,7 @@ async def play(ctx, *, query):
     else:
         ctx.voice_client.play(player, after=lambda e: play_next(ctx))
         await msg.edit(content=f"▶️ **Now Playing:** {player.title}")
-        
-        # DJ COMMENTARY
-        if random.random() < 0.7: # 70% chance to comment
+        if random.random() < 0.7: 
             prompt = f"{active_prompt}\nTASK: User just started playing '{player.title}'. Act like a DJ. Announce the song or roast/praise the choice. {language_instruction}"
             response = await generate_content_with_rotation(prompt)
             if response: await send_smart_message(ctx.channel, response.text)
@@ -668,16 +674,12 @@ def play_next(ctx):
         next_song = music_queue.pop(0)
         ctx.voice_client.play(next_song, after=lambda e: play_next(ctx))
         asyncio.run_coroutine_threadsafe(ctx.send(f"▶️ **Now Playing:** {next_song.title}"), client.loop)
-    else:
-        pass # Queue empty
 
 @client.command(name="skip", help="Skips the current song")
 async def skip(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
         await ctx.send("⏭️ Skipped!")
-        
-        # DJ COMMENTARY
         if random.random() < 0.5:
              prompt = f"{active_prompt}\nTASK: User skipped the song. React to it. {language_instruction}"
              response = await generate_content_with_rotation(prompt)
