@@ -55,7 +55,7 @@ YTDL_FORMAT_OPTIONS = {
     'logtostderr': False,
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'ytsearch', # 👈 CHANGED: Forces YouTube search if it's not a link
+    'default_search': 'ytsearch', 
     'source_address': '0.0.0.0',
     'http_headers': {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -77,7 +77,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         try:
             data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
         except Exception as e:
-            print(f"❌ YTDL Error: {e}") # Print error to console for debugging
+            print(f"❌ YTDL Error: {e}") 
             return None
 
         if 'entries' in data:
@@ -320,7 +320,9 @@ async def on_message(message):
         if message.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
             return
 
-    # --- 🚫 ANTI-BEEF FILTER ---
+    # --- 1. ALWAYS ALLOWED (Even if sleeping) ---
+    
+    # 🚫 ANTI-BEEF FILTER
     clean_text = ''.join(char for char in message.content.lower() if char.isalnum())
     if "baddies" in clean_text:
         try:
@@ -332,7 +334,7 @@ async def on_message(message):
         except Exception:
             pass
 
-    # --- 🎙️ VOICE MESSAGE TRANSCRIPTION ---
+    # 🎙️ VOICE MESSAGE TRANSCRIPTION (User Requested: ALLOWED)
     if message.attachments:
         attachment = message.attachments[0]
         if attachment.content_type and "audio" in attachment.content_type:
@@ -355,7 +357,7 @@ async def on_message(message):
                     print(f"Transcription Error: {e}")
                     return
 
-    # --- 🆕 REACTION LOGIC ---
+    # 🆕 REACTIONS (User Requested: ALLOWED)
     if not message.webhook_id and random.random() < 0.10: 
         try:
             server_emojis = message.guild.emojis if message.guild else []
@@ -393,21 +395,31 @@ async def on_message(message):
         elif any(role.name in AUTHORIZED_ROLES for role in message.author.roles):
             is_authorized = True
 
-    # --- 💤 SLEEP/WAKE ---
+    # --- 💤 SLEEP/WAKE CONTROL ---
     if is_sleeping:
         if is_authorized and "wake up" in message.content.lower():
             is_sleeping = False
             await client.change_presence(status=discord.Status.online)
             await message.channel.send("Yawn... I'm up. Who missed me? 👀")
-        return 
-
+            return 
+    
     if not is_sleeping and is_authorized and "go to sleep" in message.content.lower():
         is_sleeping = True
         await client.change_presence(status=discord.Status.invisible) 
         await message.channel.send("Fine. I'm going offline. Don't burn the server down without me. 💤")
         return
 
-    # --- DETERMINE ACTIVE PROMPT ---
+    # --- 🔧 COMMANDS (Allowed if sleeping, except interactive ones) ---
+    await client.process_commands(message)
+    if message.content.startswith('!'): return
+
+    # --- 🛑 STOP HERE IF SLEEPING (Prevents Yapping) ---
+    if is_sleeping:
+        return 
+
+    # --- BELOW THIS POINT: ONLY RUNS IF AWAKE ☀️ ---
+
+    # DETERMINE ACTIVE PROMPT
     if current_mode == "sayuki": active_prompt = SAYUKI_PROMPT
     elif current_mode == "kusanagi": active_prompt = KUSANAGI_PROMPT
     elif current_mode == "xeni": active_prompt = XENI_PROMPT
@@ -462,9 +474,6 @@ async def on_message(message):
                         await message.add_reaction("❌")
             return 
         
-    # Standard Commands
-    await client.process_commands(message)
-    if message.content.startswith('!'): return
 
     # --- 0. MODE SWITCHING ---
     if "1234" in message.content:
@@ -493,7 +502,7 @@ async def on_message(message):
             return
         except: pass
 
-    # --- 🧠 SMART REPLY LOGIC ---
+    # --- 🧠 SMART REPLY LOGIC (The "Yapping" part) ---
     should_respond = False
     user_input = message.content
 
@@ -514,7 +523,6 @@ async def on_message(message):
     if any(word in message.content.lower() for word in triggers):
         should_respond = True
 
-    # --- 🚀 EXECUTE RESPONSE ---
     if should_respond:
         async with message.channel.typing():
             user_activity = get_user_activity(message.author)
@@ -636,7 +644,7 @@ async def music_help_command(ctx):
 
 @client.command(name="join", help="Summons the bot to your voice channel")
 async def join(ctx):
-    if is_sleeping: return
+    # Removed is_sleeping check so you can use music while she sleeps
     if not ctx.author.voice:
         await ctx.send("You need to be in a voice channel first! 💀")
         return
@@ -649,7 +657,7 @@ async def join(ctx):
 
 @client.command(name="play", help="Plays a song from YouTube/SoundCloud")
 async def play(ctx, *, query):
-    if is_sleeping: return
+    # Removed is_sleeping check here too
     if not ctx.author.voice:
         await ctx.send("Bro you need to be in a voice channel first! 💀")
         return
@@ -659,13 +667,17 @@ async def play(ctx, *, query):
     elif ctx.voice_client.channel != channel:
         await ctx.voice_client.move_to(channel)
 
-    # 🚫 SPOTIFY BLOCKER (Since they don't work well)
+    # 🚫 SPOTIFY BLOCKER
     if "spotify.com" in query.lower():
         async with ctx.typing():
-            prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them Spotify doesn't work (DRM) and they should just type the song name directly so you can find it on YouTube."
-            response = await generate_content_with_rotation(prompt)
-            if response: await send_smart_message(ctx.channel, response.text)
-            else: await ctx.send("❌ Spotify links don't work (DRM). Just type the **song name** instead! 🎧")
+            # If sleeping, just send standard message, no persona yap
+            if is_sleeping:
+                 await ctx.send("❌ Spotify links don't work (DRM). Just type the **song name** instead! 🎧")
+            else:
+                 prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them Spotify doesn't work (DRM) and they should just type the song name directly so you can find it on YouTube."
+                 response = await generate_content_with_rotation(prompt)
+                 if response: await send_smart_message(ctx.channel, response.text)
+                 else: await ctx.send("❌ Spotify links don't work (DRM). Just type the **song name** instead! 🎧")
         return
 
     msg = await ctx.send(f"🔎 **Searching YouTube for:** `{query}`...")
@@ -686,7 +698,9 @@ async def play(ctx, *, query):
     else:
         ctx.voice_client.play(player, after=lambda e: play_next(ctx))
         await msg.edit(content=f"▶️ **Now Playing:** {player.title}")
-        if random.random() < 0.7: 
+        
+        # 🤫 ONLY DO DJ COMMENTARY IF AWAKE
+        if not is_sleeping and random.random() < 0.7: 
             prompt = f"{active_prompt}\nTASK: User just started playing '{player.title}'. Act like a DJ. Announce the song or roast/praise the choice. {language_instruction}"
             response = await generate_content_with_rotation(prompt)
             if response: await send_smart_message(ctx.channel, response.text)
@@ -702,7 +716,8 @@ async def skip(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
         await ctx.send("⏭️ Skipped!")
-        if random.random() < 0.5:
+        # 🤫 ONLY DO COMMENTARY IF AWAKE
+        if not is_sleeping and random.random() < 0.5:
              prompt = f"{active_prompt}\nTASK: User skipped the song. React to it. {language_instruction}"
              response = await generate_content_with_rotation(prompt)
              if response: await send_smart_message(ctx.channel, response.text)
