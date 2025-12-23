@@ -172,6 +172,17 @@ Use emojis like:  💀, 😭, 🤡, 🧢, 🗿.
 Keep it short, savage, and disrespectful.
 """
 
+# --- 🛠️ HELPER TO GET CURRENT PERSONA ---
+def get_active_context():
+    # Uses the global variables to get the right prompt
+    if current_mode == "sayuki": prompt = SAYUKI_PROMPT
+    elif current_mode == "kusanagi": prompt = KUSANAGI_PROMPT
+    elif current_mode == "xeni": prompt = XENI_PROMPT
+    else: prompt = YUMIKO_PROMPT
+    
+    instruction = f"\n\nIMPORTANT: You MUST respond in {current_language} language only. DO NOT repeat the user's message. DO NOT start with 'User said'. Just reply directly with your response. KEEP IT SHORT."
+    return prompt, instruction
+
 # --- 🤖 BOT SETUP ---
 intents = discord.Intents.all()
 client = commands.Bot(command_prefix="!", intents=intents)
@@ -699,6 +710,9 @@ async def play(ctx, *, query):
         ctx.voice_client.play(player, after=lambda e: play_next(ctx))
         await msg.edit(content=f"▶️ **Now Playing:** {player.title}")
         
+        # FIX: Get context variables
+        active_prompt, language_instruction = get_active_context()
+
         # 🤫 ONLY DO DJ COMMENTARY IF AWAKE
         if not is_sleeping and random.random() < 0.7: 
             prompt = f"{active_prompt}\nTASK: User just started playing '{player.title}'. Act like a DJ. Announce the song or roast/praise the choice. {language_instruction}"
@@ -716,6 +730,10 @@ async def skip(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
         await ctx.send("⏭️ Skipped!")
+        
+        # FIX: Get context variables
+        active_prompt, language_instruction = get_active_context()
+
         # 🤫 ONLY DO COMMENTARY IF AWAKE
         if not is_sleeping and random.random() < 0.5:
              prompt = f"{active_prompt}\nTASK: User skipped the song. React to it. {language_instruction}"
