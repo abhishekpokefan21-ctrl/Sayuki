@@ -13,6 +13,7 @@ import os
 import yt_dlp
 from keep_alive import keep_alive
 from dotenv import load_dotenv
+import edge_tts 
 
 load_dotenv()
 
@@ -20,12 +21,14 @@ load_dotenv()
 GEMINI_KEYS = [
     os.getenv("GEMINI_KEY_1"),
     os.getenv("GEMINI_KEY_2"), 
-    os.getenv("GEMINI_KEY_3")
+    os.getenv("GEMINI_KEY_3"),
+    os.getenv("GEMINI_KEY_4"),
 ]
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TARGET_CHANNEL_ID = 1439872572039893083 
 MASTER_ID = 454565617538957313 
+HALL_OF_SHAME_ID = 1455348511871860756  # <--- 🔴 REPLACE THIS WITH YOUR HALL OF SHAME CHANNEL ID
 
 # --- 🛡️ PERMISSIONS SETUP ---
 AUTHORIZED_ROLES = ["Admin", "Moderator", "Owner", "Sayuki Handler"] 
@@ -44,7 +47,6 @@ FFMPEG_OPTIONS = {
     'options': '-vn'
 }
 
-# 🔥 UPDATED OPTIONS TO FIX YOUTUBE BLOCKING & ENABLE NAME SEARCH 🔥
 YTDL_FORMAT_OPTIONS = {
     'format': 'bestaudio/best',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -89,7 +91,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
 # --- GLOBAL STATE ---
 current_mode = "sayuki" 
 current_language = "English" 
-is_sleeping = False 
 music_queue = [] 
 voice_client = None 
 
@@ -174,7 +175,6 @@ Keep it short, savage, and disrespectful.
 
 # --- 🛠️ HELPER TO GET CURRENT PERSONA ---
 def get_active_context():
-    # Uses the global variables to get the right prompt
     if current_mode == "sayuki": prompt = SAYUKI_PROMPT
     elif current_mode == "kusanagi": prompt = KUSANAGI_PROMPT
     elif current_mode == "xeni": prompt = XENI_PROMPT
@@ -244,6 +244,51 @@ async def send_smart_message(destination, text):
         print(f"Webhook Error (Falling back to standard): {e}")
         await destination.send(text)
 
+# --- 📸 HALL OF SHAME LOGIC (NEW) ---
+async def process_hall_of_shame(message):
+    """
+    Checks if a message is worthy of the Hall of Shame.
+    Runs silently in background.
+    """
+    if len(message.content) < 4: return # Ignore super short stuff
+    
+    # Random chance filter to save API keys (checks 30% of messages)
+    if random.random() > 0.30: return 
+
+    try:
+        prompt = (
+            f"Analyze this chat message: '{message.content}'. "
+            "Does this message have HIGH energy of being either: "
+            "1. Extremely Savage/Roast "
+            "2. Extremely Cringey/Simp/Down Bad "
+            "3. Extremely Funny/Wild/Out of pocket "
+            "If it is boring or normal, reply 'NO'. "
+            "If it is definitely worthy of a 'Hall of Shame' highlight, reply 'YES' followed by which category (Savage, Cringe, or Wild). "
+            "Example: 'YES - Cringe'"
+        )
+
+        response = await generate_content_with_rotation(prompt)
+        
+        if response and "YES" in response.text.upper():
+            hall_channel = client.get_channel(HALL_OF_SHAME_ID)
+            if not hall_channel:
+                print("❌ Hall of Shame channel not found! Check ID.")
+                return
+
+            category = response.text.replace("YES", "").replace("-", "").strip()
+            
+            # Create Embed
+            embed = discord.Embed(description=message.content, color=discord.Color.gold())
+            embed.set_author(name=message.author.display_name, icon_url=message.author.avatar.url if message.author.avatar else None)
+            embed.set_footer(text=f"Caught by {current_mode.capitalize()} • Verdict: {category}")
+            embed.timestamp = datetime.datetime.now()
+            
+            await hall_channel.send(f"🚨 **HALL OF SHAME ALERT!**", embed=embed)
+            await message.add_reaction("📸") # React to original message to show it was caught
+
+    except Exception as e:
+        print(f"Hall of Shame Error: {e}")
+
 # --- 🎨 UI CLASSES ---
 class ColorSelect(Select):
     def __init__(self):
@@ -270,8 +315,6 @@ class RoleView(View):
 # --- 💀 NECROMANCER LOOP ---
 @tasks.loop(hours=12) 
 async def auto_revive():
-    if is_sleeping: return
-
     await client.wait_until_ready()
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
@@ -322,7 +365,6 @@ async def on_ready():
 async def on_message(message):
     global current_mode
     global current_language 
-    global is_sleeping
 
     if message.author.id == client.user.id:
         return
@@ -331,21 +373,15 @@ async def on_message(message):
         if message.author.name in ["Sayuki 💋", "Kusanagi 🍵", "Yumiko 👉👈", "Xeni 💀"]:
             return
 
-    # --- 1. ALWAYS ALLOWED (Even if sleeping) ---
-    
-    # 🚫 ANTI-BEEF FILTER
-    clean_text = ''.join(char for char in message.content.lower() if char.isalnum())
-    if "baddies" in clean_text:
-        try:
-            await message.delete()
-            warning = await message.channel.send(f"{message.author.mention} We don't bring that drama here. 🚫")
-            await asyncio.sleep(4)
-            await warning.delete()
-            return 
-        except Exception:
-            pass
+    # --- 📸 HALL OF SHAME CHECK (Runs in Background) ---
+    # Only run in the Target Channel to avoid spamming from random channels
+    if message.channel.id == TARGET_CHANNEL_ID and not message.author.bot:
+        asyncio.create_task(process_hall_of_shame(message))
 
-    # 🎙️ VOICE MESSAGE TRANSCRIPTION (User Requested: ALLOWED)
+    # --- 1. ALWAYS ALLOWED ---
+
+
+    # 🎙️ VOICE MESSAGE TRANSCRIPTION 
     if message.attachments:
         attachment = message.attachments[0]
         if attachment.content_type and "audio" in attachment.content_type:
@@ -368,7 +404,7 @@ async def on_message(message):
                     print(f"Transcription Error: {e}")
                     return
 
-    # 🆕 REACTIONS (User Requested: ALLOWED)
+    # 🆕 REACTIONS
     if not message.webhook_id and random.random() < 0.10: 
         try:
             server_emojis = message.guild.emojis if message.guild else []
@@ -396,37 +432,9 @@ async def on_message(message):
         except Exception:
             pass
 
-    # --- 🛡️ PERMISSION CHECK ---
-    is_authorized = False
-    if message.author.id == MASTER_ID:
-        is_authorized = True
-    elif isinstance(message.author, discord.Member): 
-        if message.author.guild_permissions.administrator:
-            is_authorized = True
-        elif any(role.name in AUTHORIZED_ROLES for role in message.author.roles):
-            is_authorized = True
-
-    # --- 💤 SLEEP/WAKE CONTROL ---
-    if is_sleeping:
-        if is_authorized and "wake up" in message.content.lower():
-            is_sleeping = False
-            await client.change_presence(status=discord.Status.online)
-            await message.channel.send("Yawn... I'm up. Who missed me? 👀")
-            return 
-    
-    if not is_sleeping and is_authorized and "go to sleep" in message.content.lower():
-        is_sleeping = True
-        await client.change_presence(status=discord.Status.invisible) 
-        await message.channel.send("Fine. I'm going offline. Don't burn the server down without me. 💤")
-        return
-
-    # --- 🔧 COMMANDS (Allowed if sleeping, except interactive ones) ---
+    # --- 🔧 COMMANDS ---
     await client.process_commands(message)
     if message.content.startswith('!'): return
-
-    # --- 🛑 STOP HERE IF SLEEPING (Prevents Yapping) ---
-    if is_sleeping:
-        return 
 
     # --- BELOW THIS POINT: ONLY RUNS IF AWAKE ☀️ ---
 
@@ -593,9 +601,6 @@ async def on_message(message):
 @client.tree.command(name="roast", description="Humble someone real quick")
 async def roast(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer()
-    if is_sleeping:
-         await interaction.followup.send("I'm sleeping rn... go away. 💤")
-         return
     
     if current_mode == "yumiko":
         await interaction.followup.send(f"I-I can't roast {member.mention}... t-that's mean! (>_<)")
@@ -616,9 +621,6 @@ async def roast(interaction: discord.Interaction, member: discord.Member):
 @client.tree.command(name="pickup", description="Let the bot pick you up")
 async def pickup(interaction: discord.Interaction):
     await interaction.response.defer()
-    if is_sleeping:
-         await interaction.followup.send("I'm sleeping... zzz 💤")
-         return
 
     if current_mode == "yumiko":
          prompt = f"Try to say a pickup line but get extremely embarrassed. Language: {current_language}"
@@ -642,6 +644,65 @@ async def setup_vibe(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=RoleView())
     await interaction.response.send_message("Menu spawned.", ephemeral=True)
 
+# 🔥 NEW: EXPRESSIVE VOICE MESSAGE COMMAND (Using Edge-TTS) 🔥
+@client.tree.command(name="vm", description="Send a voice message in character")
+async def vm(interaction: discord.Interaction, topic: str):
+    await interaction.response.defer()
+    
+    # 1. Get current Persona
+    if current_mode == "sayuki": 
+        prompt_base = SAYUKI_PROMPT
+        # Changed to Ava (Standard, Confident) - NO HIGH PITCH
+        voice_model = "en-US-AvaNeural"
+        voice_pitch = "+0Hz"
+        voice_rate = "+0%"
+    elif current_mode == "kusanagi": 
+        prompt_base = KUSANAGI_PROMPT
+        # British accent, lower pitch, slower = Mature/Mommy
+        voice_model = "en-GB-SoniaNeural"
+        voice_pitch = "-5Hz"
+        voice_rate = "-5%"
+    elif current_mode == "xeni": 
+        prompt_base = XENI_PROMPT
+        # Fast, standard US voice = Gen Z Yap
+        voice_model = "en-US-SteffanNeural"
+        voice_pitch = "+0Hz"
+        voice_rate = "+15%"
+    else: 
+        prompt_base = YUMIKO_PROMPT
+        # Soft voice, slower = Shy
+        voice_model = "en-US-AnaNeural"
+        voice_pitch = "-2Hz" # Lowering pitch slightly so she doesn't sound like a child
+        voice_rate = "-10%"
+    
+    prompt = f"{prompt_base}\n\nTASK: Speak to the user about this topic: '{topic}'. Keep it natural, conversational, and EXPRESSIVE (max 2 sentences). Do not use asterisks or actions like *blushes* in the text, just the spoken words. Language: {current_language}"
+    
+    # 2. Generate Text Response
+    response = await generate_content_with_rotation(prompt)
+    if not response or not response.text:
+        await interaction.followup.send("My brain froze... try again!", ephemeral=True)
+        return
+
+    text_to_speak = response.text.replace("*", "") # Clean up actions so she doesn't read them
+    
+    # 3. Convert to Audio using Edge-TTS (Natural Voices)
+    file_path = f"vm_{interaction.user.id}.mp3"
+    
+    try:
+        communicate = edge_tts.Communicate(text_to_speak, voice_model, pitch=voice_pitch, rate=voice_rate)
+        await communicate.save(file_path)
+        
+        # 4. Send Audio File
+        await interaction.followup.send(content=f"🗣️ **{current_mode.capitalize()} says:**", file=discord.File(file_path))
+        
+        # 5. Cleanup
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
+    except Exception as e:
+        print(f"VM Error: {e}")
+        await interaction.followup.send(f"I couldn't record the voice message... ({e})", ephemeral=True)
+
 # --- 🎵 MUSIC COMMANDS ---
 @client.command(name="music", help="Shows the music help menu")
 async def music_help_command(ctx):
@@ -655,7 +716,6 @@ async def music_help_command(ctx):
 
 @client.command(name="join", help="Summons the bot to your voice channel")
 async def join(ctx):
-    # Removed is_sleeping check so you can use music while she sleeps
     if not ctx.author.voice:
         await ctx.send("You need to be in a voice channel first! 💀")
         return
@@ -668,7 +728,6 @@ async def join(ctx):
 
 @client.command(name="play", help="Plays a song from YouTube/SoundCloud")
 async def play(ctx, *, query):
-    # Removed is_sleeping check here too
     if not ctx.author.voice:
         await ctx.send("Bro you need to be in a voice channel first! 💀")
         return
@@ -681,14 +740,10 @@ async def play(ctx, *, query):
     # 🚫 SPOTIFY BLOCKER
     if "spotify.com" in query.lower():
         async with ctx.typing():
-            # If sleeping, just send standard message, no persona yap
-            if is_sleeping:
-                 await ctx.send("❌ Spotify links don't work (DRM). Just type the **song name** instead! 🎧")
-            else:
-                 prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them Spotify doesn't work (DRM) and they should just type the song name directly so you can find it on YouTube."
-                 response = await generate_content_with_rotation(prompt)
-                 if response: await send_smart_message(ctx.channel, response.text)
-                 else: await ctx.send("❌ Spotify links don't work (DRM). Just type the **song name** instead! 🎧")
+             prompt = f"{active_prompt}\nTASK: User sent a Spotify link. Tell them Spotify doesn't work (DRM) and they should just type the song name directly so you can find it on YouTube."
+             response = await generate_content_with_rotation(prompt)
+             if response: await send_smart_message(ctx.channel, response.text)
+             else: await ctx.send("❌ Spotify links don't work (DRM). Just type the **song name** instead! 🎧")
         return
 
     msg = await ctx.send(f"🔎 **Searching YouTube for:** `{query}`...")
@@ -713,8 +768,8 @@ async def play(ctx, *, query):
         # FIX: Get context variables
         active_prompt, language_instruction = get_active_context()
 
-        # 🤫 ONLY DO DJ COMMENTARY IF AWAKE
-        if not is_sleeping and random.random() < 0.7: 
+        # 🤫 DJ COMMENTARY
+        if random.random() < 0.7: 
             prompt = f"{active_prompt}\nTASK: User just started playing '{player.title}'. Act like a DJ. Announce the song or roast/praise the choice. {language_instruction}"
             response = await generate_content_with_rotation(prompt)
             if response: await send_smart_message(ctx.channel, response.text)
@@ -734,8 +789,8 @@ async def skip(ctx):
         # FIX: Get context variables
         active_prompt, language_instruction = get_active_context()
 
-        # 🤫 ONLY DO COMMENTARY IF AWAKE
-        if not is_sleeping and random.random() < 0.5:
+        # 🤫 DJ COMMENTARY
+        if random.random() < 0.5:
              prompt = f"{active_prompt}\nTASK: User skipped the song. React to it. {language_instruction}"
              response = await generate_content_with_rotation(prompt)
              if response: await send_smart_message(ctx.channel, response.text)
